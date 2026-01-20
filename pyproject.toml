@@ -1,5 +1,5 @@
 [project]
-name = "mrrpro"
+name = "mrrpropy"
 dynamic = ["version"]
 description = "A python package for MRR PRO analysis and processing."
 authors = [{ name = "Juan Antonio Bravo Aranda", email = "jabravo@ugr.es" }]
@@ -37,7 +37,7 @@ jupyter = []
 Homepage = "https://github.com/jabravoaranda/mrrpro"
 
 [project.scripts]
-mrrpro = "mrrpro.cli.main:app"
+mrrpropy = "mrrpropy.cli.main:app"
 
 [dependency-groups]
 dev = [
@@ -53,11 +53,11 @@ include = ['/README.md', '/tests', '/pyproject.toml', '/LICENSE', '/MANIFEST.in'
 # exclude = ['/tests/data/RAW']
 
 [tool.hatch.build.targets.wheel]
-include = ["mrrpro"]
+include = ["mrrpropy"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
-path = "mrrpro/__init__.py"
+path = "mrrpropy/__init__.py"

@@ -135,7 +135,6 @@ def test_processing_raprompro(mrr) -> xr.Dataset:
     """
 
     out = mrr.process_raprompro()
-    breakpoint()
     out.to_netcdf(OUTPUT_DIR / f"{MRR_PATH.stem}_processed.nc")
     if not isinstance(out, xr.Dataset):
         pytest.fail("process_raprompro() no devolvió un xr.Dataset.")
