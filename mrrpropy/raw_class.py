@@ -9,8 +9,10 @@ from matplotlib.figure import Figure
 import numpy as np
 import xarray as xr
 from datetime import datetime
-import mrrpropy.RaProMPro_original as rpm
 
+from mrrpropy import generate_rgb_hex
+import mrrpropy.RaProMPro_original as rpm
+from mrrpropy.utils import build_rgb_from_trends, map_rgb_to_hexagram, to_time_slice, ols_slope_intercept_r2, compute_eps 
 DatetimeLike = Union[str, np.datetime64, datetime]
 
 plt.rcParams.update({
@@ -714,7 +716,7 @@ class MRRProData:
     # -------------------------------------------------------------------------
     # Helpers internos para espectros MRR-PRO
     # -------------------------------------------------------------------------
-    def _nearest_time_range(
+    def _nearest_period(
         self, target_time: datetime | np.datetime64, target_range: float
     ) -> tuple[np.datetime64, float]:
         """Devuelve el time y range reales seleccionados por nearest."""
@@ -766,7 +768,7 @@ class MRRProData:
                     f"No encuentro '{spectrum_var}' ni 'spectrum_raw' en el Dataset."
                 )
 
-        t_sel, r_sel = self._nearest_time_range(target_time, target_range)
+        t_sel, r_sel = self._nearest_period(target_time, target_range)
 
         da = ds[spectrum_var]
         units = str(da.attrs.get("units", ""))
@@ -1671,3 +1673,400 @@ class MRRProData:
             fig.savefig(output_path)
 
         return fig, axs, output_path
+
+    def plot_rain_process_in_layer(self,
+                                    target_datetime: datetime | tuple[datetime, datetime],
+                                    layer: tuple[float, float],
+                                    x: str = 'Dm',
+                                    y: str = 'LwC',
+                                    z: str = "Nw",
+                                    use_relative_difference: bool = True,
+                                    savefig: bool = False,
+                                    **kwargs
+                                    ) -> tuple[Figure, Path | None]:
+        """
+        Plots the rain process in a specified atmospheric layer at a given datetime.
+        This method generates a scatter plot of two selected variables (x and y) from the dataset,
+        colored by a third variable (z), representing the difference in properties within a specified
+        vertical layer. The plot can optionally be saved to disk.
+        Parameters
+        ----------
+        target_datetime : datetime
+            The target datetime for which to select the data profile.
+        layer : tuple[float, float]
+            The vertical layer (zmin, zmax) in meters to analyze.
+        x : str, optional
+            The variable name to plot on the x-axis (default is 'Dm').
+        y : str, optional
+            The variable name to plot on the y-axis (default is 'LwC').
+        z : str, optional
+            The variable name to use for color mapping (default is 'Nw').
+        savefig : bool, optional
+            Whether to save the generated figure to disk (default is False).
+            Additional keyword arguments:
+                - figsize: tuple, optional
+                    Figure size (default is (12, 6)).
+                - cmap: str, optional
+                    Colormap for the scatter plot (default is 'viridis').
+                - marker_size: int or float, optional
+                    Marker size for the scatter plot (default is 50).
+                - output_dir: Path or str, optional
+                    Directory to save the figure if savefig is True (default is current working directory).
+        Returns
+        -------
+        tuple[Figure, Path | None]
+            A tuple containing the matplotlib Figure object and the output Path if saved, otherwise None.
+        Raises
+        ------
+        KeyError
+            If any of the specified variables (x, y, z) are not found in the dataset.
+        """
+
+        
+        #Check x,y,z exists as variable in self.ds, otherwise raise error
+        for var in (x, y, z):
+            if var not in self.ds:
+                raise KeyError(f"Variable '{var}' not found in dataset.")
+
+        #Check time tuple increasing
+        if isinstance(target_datetime, tuple):
+            if target_datetime[0] >= target_datetime[1]:
+                raise ValueError("target_datetime tuple must be in increasing order (start, end).")
+
+        #get data profiles from self.data
+        if isinstance(target_datetime, datetime):
+            ds_ = self.ds.sel(time=target_datetime, method='nearest').sel(range=slice(*layer))
+        else:
+            ds_ = self.ds.sel(time=slice(*target_datetime)).sel(range=slice(*layer))
+        
+        #Get the difference of all properties between the range with respect to the zmax (end - start)
+        last_range = ds_.range[-1]
+
+        if use_relative_difference:
+            diff_ = 100*(ds_-ds_.sel(range=last_range))/ds_.sel(range=slice(*layer)).mean('range')
+            #Get maximum values for x,y,z to set simetric axis limits
+            ds_ = diff_.copy()
+        else:
+            ds_ = ds_ - ds_.sel(range=last_range)
+            
+        x_abs_max = np.abs(ds_[x].values[np.isfinite(ds_[x].values)]).max()
+        y_abs_max = np.abs(ds_[y].values[np.isfinite(ds_[y].values)]).max()
+        z_abs_max = np.abs(ds_[z].values[np.isfinite(ds_[z].values)]).max()
+        #create a figure with same y and x axis size
+        fig, ax = plt.subplots(figsize=kwargs.get('figsize', (12, 6)))
+
+        # for time_ in diff_.time:
+        ds_.plot.scatter(x=x, 
+                            y=y, 
+                            hue=z,
+                            cmap=kwargs.get('cmap', 'viridis'), 
+                            s=kwargs.get('marker_size', 50), 
+                            vmin = -z_abs_max,
+                            vmax = z_abs_max,   
+                            ax=ax
+                            )
+        ax.set_xlabel(x)
+        ax.set_ylabel(y)
+        # cbar = fig.colorbar(ax.collections[0], ax=ax)
+        cbar = ax.get_figure().get_axes()[1]
+        cbar.set_ylabel(z)
+        zmin, zmax = layer  
+        if isinstance(target_datetime, tuple):
+            ax.set_title(f"Layer {zmin/1000.}-{zmax/1000.} km \n {target_datetime[0]} to {target_datetime[1]}")
+        else:
+            ax.set_title(f"Layer {zmin/1000.}-{zmax/1000.} km | {target_datetime}")
+        #create simetric limits for x and y axis
+        ax.set_xlim(-x_abs_max, x_abs_max)
+        ax.set_ylim(-y_abs_max, y_abs_max)
+        
+        #add grid and unity line
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+        # Highlight main axis lines (x,0) and (0,y)
+        ax.axhline(0, color='black', linestyle='--', linewidth=1)
+        ax.axvline(0, color='black', linestyle='--', linewidth=1)
+        
+         # Adjust layout
+
+        fig.tight_layout()
+
+        if savefig:
+            output_dir = kwargs.get('output_dir', Path().cwd())
+            output_dir.mkdir(parents=True, exist_ok=True)
+            if isinstance(target_datetime, tuple):
+                datestr = f"{target_datetime[0].strftime('%Y%m%d_%H%M%S')}_to_{target_datetime[1].strftime('%Y%m%d_%H%M%S')}"
+            else:
+                datestr = target_datetime.strftime("%Y%m%d_%H%M%S")
+            output_path = output_dir / f"{self.path.stem}_{datestr}_rain_process_layer_{zmin}-{zmax}m.png"
+            fig.savefig(output_path)
+
+        return fig, output_path if savefig else None
+
+
+    def compute_layer_trend_ols(
+        self, 
+        *,
+        z_top: float,
+        z_base: float,
+        time_dim: str = "time",
+        variable_threshold: str = "Ze",
+        threshold_value: float = -5.0,
+        vars: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
+        eps_mode: str = "hourly_quantile",
+        q: float = 0.01,
+        eps_floor_mode: str = "global_min",
+        nmin: int = 10,
+    ) -> xr.Dataset:
+        """
+        Compute b_X (1/m), F_X, and R^2 for X in vars using OLS of ln(X) vs depth from top.
+
+        eps_mode:
+        - "hourly_quantile": epsilon per time step (hour/file) using quantile q
+        - "global_quantile": epsilon global over provided dataset subset
+        - "fixed": requires ds.attrs[f"eps_{var}"] or set below manually (not implemented here)
+
+        eps_floor_mode:
+        - "global_min": epsilon(t) := max(epsilon(t), epsilon_global)
+        - "none": no floor
+        """
+        ds = self.ds
+        
+        # Select layer
+        if z_base <= z_top:
+            raise ValueError("z_base must be greater than z_top (in meters).")
+
+        layer = ds.sel({'range': slice(z_top, z_base)})
+
+        # Depth from top (positive downward)
+        z_layer = layer['range'].values.astype(float)
+        d = (z_top - z_layer)  # d=0 at top; negative if z_layer>z_top; depends on ordering
+        # Ensure d increases downward: if heights increase upward, z_layer>z_top => d negative.
+        # Better: define depth as absolute distance from top along vertical axis:
+        d = np.abs(z_layer - z_top)
+
+        dz = float(z_base - z_top)
+
+        Ze = layer[variable_threshold]
+        ze_mask = xr.where(np.isfinite(Ze) & (Ze > threshold_value), True, False)
+
+        out = xr.Dataset(coords={time_dim: layer[time_dim].values})
+        out["dz"] = xr.DataArray(dz)
+
+        # Precompute global eps if requested
+        global_eps: dict[str, float] = {}
+        if eps_mode == "global_quantile" or eps_floor_mode == "global_min":
+            for vname in vars:
+                vvals = layer[vname].values
+                global_eps[vname] = compute_eps(vvals, q=q)
+
+        # For each time, compute per-variable eps and fit
+        times = layer[time_dim].values
+        ntime = times.size
+
+        n_valid = np.zeros(ntime, dtype=int)
+        # n_valid defined by Ze mask only (common across variables), but we can also compute per-var n later if needed.
+        ze_mask_np = ze_mask.values  # shape: (time, height_in_layer)
+        n_valid[:] = np.sum(ze_mask_np, axis=1)
+
+        out["n_valid"] = xr.DataArray(n_valid, dims=(time_dim,))
+
+        for vname in vars:
+            b_arr = np.full(ntime, np.nan, dtype=float)
+            a_arr = np.full(ntime, np.nan, dtype=float)
+            r2_arr = np.full(ntime, np.nan, dtype=float)
+            F_arr = np.full(ntime, np.nan, dtype=float)
+
+            V = layer[vname].values  # (time, height)
+
+            for it in range(ntime):
+                if n_valid[it] < nmin:
+                    continue
+
+                mask = ze_mask_np[it, :] & np.isfinite(V[it, :]) & (V[it, :] > 0)
+                if np.sum(mask) < nmin:
+                    continue
+
+                # epsilon
+                if eps_mode == "hourly_quantile":
+                    eps_t = compute_eps(V[it, :], q=q)
+                elif eps_mode == "global_quantile":
+                    eps_t = global_eps.get(vname, np.nan)
+                else:
+                    raise ValueError(f"Unsupported eps_mode={eps_mode}")
+
+                if not np.isfinite(eps_t) or eps_t <= 0:
+                    continue
+
+                if eps_floor_mode == "global_min":
+                    eps_g = global_eps.get(vname, np.nan)
+                    if np.isfinite(eps_g) and eps_g > 0:
+                        eps_t = max(eps_t, eps_g)
+
+                x = d[mask]
+                y = np.log(np.maximum(V[it, mask], eps_t))
+
+                b, a, r2 = ols_slope_intercept_r2(x, y)
+                if not np.isfinite(b) or not np.isfinite(r2):
+                    continue
+
+                b_arr[it] = b
+                a_arr[it] = a
+                r2_arr[it] = r2
+                F_arr[it] = float(np.exp(b * dz))
+
+            out[f"b_{vname}"] = xr.DataArray(b_arr, dims=(time_dim,))
+            out[f'a_{vname}'] = xr.DataArray(a_arr, dims=(time_dim,))
+            out[f"r2_{vname}"] = xr.DataArray(r2_arr, dims=(time_dim,))
+            out[f"F_{vname}"] = xr.DataArray(F_arr, dims=(time_dim,))
+        return out
+
+
+    def plot_hexagram_event_in_layer(
+        self,
+        *,
+        period: tuple[datetime, datetime],
+        layer: tuple[float, float],
+        k: int,
+        ze_th: float = -5.0,
+        nmin: int = 10,
+        eps_q: float = 0.01,
+        rgb_q: float = 0.02,
+        vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
+        figsize: tuple[float, float] = (10, 10),
+        marker_size: float = 35.0,
+        alpha: float = 0.9,
+        use_snapped_colors: bool = True,
+        savefig: bool = False,
+        output_dir=None,
+        dpi: int = 200,
+    ):
+        """
+        Plotea el hexagrama (base RGB) y superpone la trayectoria temporal del evento
+        (puntos) para una capa fija [z_top, z_base] y un periodo temporal.
+
+        Pipeline:
+        1) compute_layer_trend_ols(...)  -> b_Dm, b_Nw, b_LWC, F_*, r2_*
+        2) build_rgb_from_trends(...)    -> R,G,B en [0,1]
+        3) map_rgb_to_hexagram(...)      -> hex_x, hex_y, hex_area (+ snap_R,G,B opcional)
+        4) plot base hexagram + scatter
+
+        Parameters
+        ----------
+        period :
+            slice o tupla (t0, t1) compatible con xarray sel(time=...).
+            Ejemplos:
+            - slice("2025-03-08T12:00", "2025-03-08T13:00")
+            - (datetime1, datetime2)
+        layer : (z_top, z_base) en metros.
+        k : int
+            Resolución del hexagrama (no se asume).
+        ze_th : float
+            Umbral de Ze (dBZ) para máscara binaria (eco válido).
+        nmin : int
+            Número mínimo de bins válidos en la capa para ajustar OLS.
+        eps_q : float
+            Cuantil para epsilon en el log (compute_layer_trend_ols).
+        rgb_q : float
+            Cuantil para la normalización robusta a RGB (build_rgb_from_trends).
+        use_snapped_colors : bool
+            Si True, colorea con el RGB de la celda asignada (snap); si False, con RGB continuo.
+        """
+
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from pathlib import Path
+
+        # Imports desde utils (ajusta el path si tu paquete difiere)
+        from mrrpropy.utils import (
+            build_rgb_from_trends,
+            map_rgb_to_hexagram,
+            get_hexagram_assets,
+        )
+
+        if not self._is_processed():
+            raise RuntimeError("El dataset no parece preprocesado (faltan variables clave).")
+
+        z_top, z_base = layer
+        if z_base <= z_top:
+            raise ValueError("layer debe cumplir z_base > z_top (metros).")
+
+        # --- seleccionar periodo ---
+        ds_sub = self.ds.sel(time=slice(*period))
+        if ds_sub.sizes.get("time", 0) == 0:
+            raise ValueError("Selección temporal vacía: revisa period.")
+
+        # --- 1) tendencias en capa (OLS + R²) ---
+        trends = self.compute_layer_trend_ols(
+            z_top=z_top,
+            z_base=z_base,
+            variable_threshold="Ze",
+            threshold_value=ze_th,
+            vars=vars_trend,
+            q=eps_q,
+            nmin=nmin,
+        )
+
+        # --- 2) RGB en [0,1] centrado en 0.5 (a partir de b_*) ---
+        rgb = build_rgb_from_trends(
+            trends,
+            vars=(f"b_{vars_trend[0]}", f"b_{vars_trend[1]}", f"b_{vars_trend[2]}"),
+            q=rgb_q,
+        )
+
+        # --- construir assets del hexagrama UNA vez (img + LUT) ---
+        hex_assets = get_hexagram_assets(k=k)
+
+        # --- 3) proyección al hexagrama (reutiliza LUT, no recalcula generate_rgb_hex) ---
+        hex_ds = map_rgb_to_hexagram(rgb, hex_assets=hex_assets)
+
+        # --- 4) plotting (reutiliza img del mismo hex_assets) ---
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.imshow(hex_assets["img"], origin="lower", interpolation="nearest")
+
+        hx = hex_ds["hex_x"].values.astype(float)
+        hy = hex_ds["hex_y"].values.astype(float)
+
+        if use_snapped_colors and all(v in hex_ds for v in ("snap_R", "snap_G", "snap_B")):
+            cols = np.stack(
+                [hex_ds["snap_R"].values, hex_ds["snap_G"].values, hex_ds["snap_B"].values],
+                axis=1,
+            )
+        else:
+            cols = np.stack([rgb["R"].values, rgb["G"].values, rgb["B"].values], axis=1)
+
+        ok = np.isfinite(hx) & np.isfinite(hy) & np.isfinite(cols).all(axis=1) & (hx >= 0) & (hy >= 0)
+        if np.any(ok):
+            ax.scatter(
+                hx[ok],
+                hy[ok],
+                s=marker_size,
+                c=cols[ok],
+                alpha=alpha,
+                edgecolors="black",
+                linewidths=0.3,
+            )
+
+        # Etiquetado mínimo (sin asumir convención de áreas)
+        t0 = ds_sub["time"].values[0]
+        t1 = ds_sub["time"].values[-1]
+        t0s = np.datetime_as_string(t0, unit="s")
+        t1s = np.datetime_as_string(t1, unit="s")
+        ax.set_title(f"Hexagrama RGB (k={k}) | Capa {z_top:.0f}-{z_base:.0f} m | {t0s} → {t1s}")
+        ax.set_xlabel("hex_x (índice rejilla)")
+        ax.set_ylabel("hex_y (índice rejilla)")
+        ax.set_xlim(-0.5, hex_assets["img"].shape[1] - 0.5)
+        ax.set_ylim(-0.5, hex_assets["img"].shape[0] - 0.5)
+        ax.grid(False)
+        fig.tight_layout()
+
+        saved = None
+        if savefig:
+            if output_dir is None:
+                outdir = Path.cwd()
+                saved = outdir / f"{Path(self.path).stem}_{t0s.replace(':','')}_{t1s.replace(':','')}_hex_{z_top:.0f}-{z_base:.0f}m_k{k}.png"
+            else:
+                saved = Path(output_dir) / f"{Path(self.path).stem}_{t0s.replace(':','')}_{t1s.replace(':','')}_hex_{z_top:.0f}-{z_base:.0f}m_k{k}.png"
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(saved, dpi=dpi)
+
+        return fig, ax, saved

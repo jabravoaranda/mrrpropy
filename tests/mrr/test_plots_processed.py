@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 import datetime
 import numpy as np
@@ -41,10 +42,10 @@ def test_quickplot_reflectivity_runs(mrr):
     Este test se puede marcar como 'slow' si lo deseas.
     """
     pytest.importorskip("matplotlib")
-
-    fig, ax = mrr.quickplot_reflectivity(field="Ze")
+    variable = 'Dm'
+    fig, ax = mrr.quickplot_reflectivity(field=variable)
     fig.savefig(
-        OUTPUT_DIR / "test_quickplot_reflectivity.png"
+        OUTPUT_DIR / f"test_quickplot_reflectivity_{variable}.png"
     )  # Guardar la figura para inspección manual si se desea
     # Comprobación mínima de que devuelve objetos figura y ejes
 
@@ -60,7 +61,7 @@ def test_plot_raprompro_profiles(mrr):
     """
 
     fig, axes, filepath = mrr.plot_raprompro_profiles(
-        target_datetime=datetime.datetime(2025, 3, 8, 14, 0, 0),
+        target_datetime=datetime.datetime(2025, 3, 8, 12, 36, 0),
         savefig=True,
         output_dir=OUTPUT_DIR,
     )
@@ -70,3 +71,24 @@ def test_plot_raprompro_profiles(mrr):
     assert isinstance(axes, np.ndarray)
     assert axes.shape == (5,)  # Debe haber un eje por variable solicitada
     assert filepath
+
+def test_plot_raprompro_profiles_for_period(mrr):
+    """plot_raprompro_profiles debe ejecutarse sin errores.
+
+    No verificamos el contenido de la figura, solo que no haya excepciones.
+    Este test se puede marcar como 'slow' si lo deseas.
+    """
+    period = (datetime.datetime(2025, 3, 8, 12, 58, 0), 
+              datetime.datetime(2025, 3, 8, 12, 59, 50))
+    times = mrr.ds.sel(time=slice(*period)).time
+
+    #convert times to list of datetime
+    times = [pd.to_datetime(t.values) for t in times]
+
+    for time_ in times:
+        mrr.plot_raprompro_profiles(
+                target_datetime=time_,
+                savefig=True,
+                output_dir=OUTPUT_DIR,
+            )
+    assert True
