@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # GET PACKAGE DIRECTORY
-MRRPRO_DIR = Path.cwd() / "mrrpropry"
+MRRPRO_DIR = Path.cwd() / "mrrpropy"
 
 # __all__ = []
 __version__ = "0.0.1"
