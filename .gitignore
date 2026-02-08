@@ -3,6 +3,7 @@ __pycache__/
 *.py[codz]
 *$py.class
 *.csv
+*.png 
 
 # C extensions
 *.so
@@ -51,7 +52,12 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
-tests/figures/
+
+#Folder tests
+tests/__pycache__/
+tests/.pytest_cache/
+tests/**/*.png
+
 # Translations
 *.mo
 *.pot
