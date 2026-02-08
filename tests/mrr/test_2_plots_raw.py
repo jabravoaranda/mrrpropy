@@ -37,8 +37,8 @@ def test_quickplot_reflectivity_runs(mrr):
     pytest.importorskip("matplotlib")
 
     variable = 'Ze'
-    fig, ax = mrr.quicklook_variable(variable=variable)
-    fig.savefig(f'test_quickplot_{variable}.png')  # Guardar la figura para inspección manual si se desea
+    fig, ax = mrr.quicklook(variable=variable)
+    fig.savefig(OUTPUT_DIR / f'test_quickplot_{variable}.png')  # Guardar la figura para inspección manual si se desea
     # Comprobación mínima de que devuelve objetos figura y ejes
     assert isinstance(fig, Figure)
     assert isinstance(ax, Axes)
@@ -80,8 +80,7 @@ def test_plot_spectrogram_saves_png(mrr):
         output_dir=OUTPUT_DIR,
         **{"dpi": 120}
     )
-
-    breakpoint()
+    
     assert isinstance(fig, Figure)
     assert filepath is not None
     assert filepath.exists()

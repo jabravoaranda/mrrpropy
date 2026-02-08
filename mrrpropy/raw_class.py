@@ -6,6 +6,7 @@ from typing import Iterable, List, Optional, Union
 
 from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
+import matplotlib.colors as mcolors
 import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
@@ -20,7 +21,7 @@ from mrrpropy.utils import (
     _sign_from_center,
     _strength,
     map_rgb_to_hexagram,
-    get_hexagram_assets,    
+    get_hexagram_assets,
 )
 
 
@@ -37,6 +38,7 @@ plt.rcParams.update(
     }
 )
 
+
 @dataclass
 class MicrophysicsConfig:
     variable_threshold: str = "Ze"
@@ -44,11 +46,12 @@ class MicrophysicsConfig:
     min_points_ols: int = 10
     eps_q: float = 0.01
     rgb_q: float = 0.02
-    eps_mode: str = 'global_quantile'
+    eps_mode: str = "global_quantile"
     tol_center: float = 0.05
     min_strength: float = 0.10
     vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC")
     k: int = 11  # default hex resolution
+
 
 @dataclass
 class PlotConfig:
@@ -57,9 +60,11 @@ class PlotConfig:
     figsize_summary: tuple[float, float] = (14, 10)
     figsize_quicklook: tuple[float, float] = (12, 8)
     figsize_spectrogram: tuple[float, float] = (10, 14)
-    cmap: str = 'jet'
-    marker: str = 'o'
+    figsize_profiles: tuple[float, float] = (14, 10)
+    cmap: str = "jet"
+    marker: str = "o"
     markersize: float = 10.0
+    legendfontsize: float = 12.0
     alpha_points: float = 0.9
     alpha_hexagram: float = 0.25
     show_path_line: bool = True
@@ -79,14 +84,17 @@ class MRRProData:
     ds : xr.Dataset
         xarray Dataset containing all MRR-PRO data.
     """
+
     path: str | Path
     ds: xr.Dataset
 
     micro_cfg: MicrophysicsConfig = field(default_factory=MicrophysicsConfig)
     plot_cfg: PlotConfig = field(default_factory=PlotConfig)
-        
+
     def __post_init__(self):
         self.path = Path(self.path)
+        self.raprompro: xr.Dataset | None = None
+
     # -------------------------
     # Constructors
     # -------------------------
@@ -262,6 +270,8 @@ class MRRProData:
         adjust_m: float = 1.0,
         save_spe_3d: bool = False,
         save_dsd_3d: bool = False,
+        save: bool = False,
+        **kwargs,
     ) -> xr.Dataset:
         """
         Run RaProM-Pro processing using the published CLI algorithm implementation
@@ -271,6 +281,8 @@ class MRRProData:
         the original CLI output (Type, W, spectral width, Skewness, Kurtosis, DBPIA,
         LWC, RR, SR, Za, Z, Zea, Ze, Z_all, ... and BB_*).
         """
+        if self.raprompro is not None:
+            return self.raprompro
 
         ds = self.ds
 
@@ -882,7 +894,13 @@ class MRRProData:
                 },
             )
 
-        return out
+        self.raprompro = out
+        if save:
+            output_dir = kwargs.get("output_dir", Path.cwd())
+            filename = kwargs.get("filename", f"{self.path.stem}_raprompro.nc")
+            out.to_netcdf(output_dir / filename)
+
+        return self.raprompro
 
     def _is_processed(
         self,
@@ -896,7 +914,10 @@ class MRRProData:
         Si quieres hacerlo más robusto, puedes además exigir algún atributo global:
         ds.attrs.get("processing") == "RaProMPro" o similar.
         """
-        return all(v in self.ds.data_vars for v in required)
+        if self.raprompro is None:
+            return False
+        
+        return all(v in self.raprompro.data_vars for v in required)
 
     # -------------------------
     # Resource Management
@@ -908,12 +929,98 @@ class MRRProData:
     # -------------------------------------------------------------------------
     # Helpers internos para espectros MRR-PRO
     # -------------------------------------------------------------------------
+    def load_raprompro(
+        self,
+        path: str | Path,
+        *,
+        chunks: str | dict | None = "auto",
+        validate: bool = True,
+        required_vars: tuple[str, ...] = (
+            "Ze",
+            "Dm",
+            "Nw",
+            "LWC",
+            "RR",
+            "Nw_all",
+            "Dm_all",
+            "N_da",
+        ),
+        assign: bool = True,
+    ) -> xr.Dataset:
+        """
+        Carga un NetCDF ya procesado por RaProMPro y lo asigna a self.raprompro.
+
+        Parameters
+        ----------
+        path : str | Path
+            Ruta al fichero *_raprompro.nc (p.ej. '20250308_120000_raprompro.nc').
+        chunks : "auto" | dict | None
+            Si no es None, abre en modo dask (lazy) para acelerar I/O y evitar cargar todo a RAM.
+        validate : bool
+            Si True, comprueba que el dataset tiene dims/coords esperadas y que encaja con self.ds.
+        required_vars : tuple[str, ...]
+            Variables mínimas que deben existir en el dataset procesado.
+        assign : bool
+            Si True, guarda el dataset en self.raprompro.
+
+        Returns
+        -------
+        xr.Dataset
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"No existe el fichero: {path}")
+
+        ds_rp = xr.open_dataset(path, chunks=chunks)
+
+        if validate:
+            # 1) Dims/coords mínimas
+            for c in ("time", "range"):
+                if c not in ds_rp.coords:
+                    raise ValueError(
+                        f"El raprompro cargado no tiene coord '{c}'. "
+                        f"coords={list(ds_rp.coords)}"
+                    )
+
+            # 2) Variables mínimas (heurística simple)
+            missing = [v for v in required_vars if v not in ds_rp.data_vars]
+            if missing:
+                raise ValueError(
+                    f"El raprompro cargado no parece un output válido: faltan {missing}. "
+                    f"vars={list(ds_rp.data_vars)}"
+                )
+
+            # 3) Compatibilidad con self.ds (time/range)
+            #    (si no quieres esto, pon validate=False)
+            if "time" in self.ds.coords:
+                t0 = self.ds["time"].values
+                t1 = ds_rp["time"].values
+                if (t0.shape != t1.shape) or (not np.array_equal(t0, t1)):
+                    raise ValueError(
+                        "Incompatibilidad en 'time' entre self.ds y el raprompro cargado "
+                        f"(self.ds: {t0.shape}, raprompro: {t1.shape})."
+                    )
+
+            if "range" in self.ds.coords:
+                r0 = self.ds["range"].values
+                r1 = ds_rp["range"].values
+                if (r0.shape != r1.shape) or (not np.array_equal(r0, r1)):
+                    raise ValueError(
+                        "Incompatibilidad en 'range' entre self.ds y el raprompro cargado "
+                        f"(self.ds: {r0.shape}, raprompro: {r1.shape})."
+                    )
+
+        if assign:
+            self.raprompro = ds_rp            
+
+        return ds_rp
+
     def _nearest_period(
-        self, target_time: datetime | np.datetime64, target_range: float
+        self, target_datetime: datetime | np.datetime64, target_range: float
     ) -> tuple[np.datetime64, float]:
         """Devuelve el time y range reales seleccionados por nearest."""
         ds = self.ds
-        t_sel = ds["time"].sel(time=target_time, method="nearest").values
+        t_sel = ds["time"].sel(time=target_datetime, method="nearest").values
         r_sel = float(ds["range"].sel(range=target_range, method="nearest").values)
         return t_sel, r_sel
 
@@ -937,7 +1044,7 @@ class MRRProData:
 
     def _get_spectrum_1d(
         self,
-        target_time: datetime | np.datetime64,
+        target_datetime: datetime | np.datetime64,
         target_range: float,
         *,
         spectrum_var: str = "spectrum_reflectivity",
@@ -960,7 +1067,7 @@ class MRRProData:
                     f"No encuentro '{spectrum_var}' ni 'spectrum_raw' en el Dataset."
                 )
 
-        t_sel, r_sel = self._nearest_period(target_time, target_range)
+        t_sel, r_sel = self._nearest_period(target_datetime, target_range)
 
         da = ds[spectrum_var]
         units = str(da.attrs.get("units", ""))
@@ -998,9 +1105,9 @@ class MRRProData:
 
     def _get_spectrogram_2d(
         self,
-        target_time: datetime | np.datetime64,
+        target_datetime: datetime | np.datetime64,
         *,
-        spectrum_var: str = "spectrum_reflectivity",
+        spectrum_var: str,
         range_limits: tuple[float, float] | None = None,
     ) -> tuple[np.datetime64, np.ndarray, np.ndarray, np.ndarray, str]:
         """
@@ -1010,33 +1117,41 @@ class MRRProData:
           t_sel, ranges, vel_axis, spec2d, units
         """
         ds = self.ds
-        if spectrum_var not in ds:
-            if "spectrum_raw" in ds:
-                spectrum_var = "spectrum_raw"
-            else:
-                raise KeyError(
-                    f"No encuentro '{spectrum_var}' ni 'spectrum_raw' en el Dataset."
-                )
 
-        t_sel = ds["time"].sel(time=target_time, method="nearest").values
+        if spectrum_var not in ds:            
+            if spectrum_var not in self.raprompro:
+                raise KeyError(f"'{spectrum_var}' not found.")
+            else:
+                ds = self.raprompro
+        else:
+            ds = self.ds
+        
         da = ds[spectrum_var]
-        units = str(da.attrs.get("units", ""))
+
+        t_sel = da["time"].sel(time=target_datetime, method="nearest").values
+        units = str(da.attrs.get("units", "?"))
 
         # Rango a representar
         if range_limits is None:
-            r0 = float(ds["range"].min().values)
-            r1 = float(ds["range"].max().values)
+            r0 = float(da["range"].min().values)
+            r1 = float(da["range"].max().values)
         else:
             r0, r1 = map(float, range_limits)
 
-        ranges = ds["range"].sel(range=slice(r0, r1)).values.astype(float)
-        n_bins = ds.sizes.get("spectrum_n_samples", None)
-        if n_bins is None:
-            raise ValueError(
-                "No encuentro dimensión 'spectrum_n_samples' en el Dataset."
-            )
-        vel = self._get_velocity_axis(int(n_bins))
+        ranges = da["range"].sel(range=slice(r0, r1)).values.astype(float)
 
+        #Spectrum 
+        if 'spectrum_n_samples' in da.sizes:
+            n_bins = da.sizes["spectrum_n_samples"]
+            if n_bins is None:
+                raise ValueError(f"spectrum_n_samples not found in Dataset.")
+            vel = self._get_velocity_axis(int(n_bins))
+        else:
+            if 'speed' in self.raprompro:
+                vel = self.raprompro["speed"]
+            else:
+                raise ValueError(f"velocity not found in raprompro Dataset.")
+        
         # Caso A: cubo (time, range, bin)
         if ("time" in da.dims) and ("range" in da.dims):
             spec2d = da.sel(time=t_sel, range=slice(r0, r1)).values.astype(float)
@@ -1050,7 +1165,11 @@ class MRRProData:
                     f"'{spectrum_var}' es (time,n_spectra,bin) pero falta 'index_spectra(time,range)'."
                 )
             # selecciona índices para todos los ranges del slice
-            idx_vec = ds["index_spectra"].sel(time=t_sel, range=slice(r0, r1)).values.astype(int)
+            idx_vec = (
+                ds["index_spectra"]
+                .sel(time=t_sel, range=slice(r0, r1))
+                .values.astype(int)
+            )
             # Extrae spectra para ese time: (n_spectra, bin)
             slab = da.sel(time=t_sel).values.astype(float)  # (n_spectra, bin)
             # Mapea (range -> n_spectra) => (range, bin)
@@ -1059,15 +1178,15 @@ class MRRProData:
 
         raise ValueError(f"Formato de '{spectrum_var}' no soportado. dims={da.dims}")
 
-
     # -------------------------
     # Quick Plot (optional)
     # -------------------------
-    def quicklook_variable(
+    def quicklook(
         self,
         variable: str = "Ze",
+        source: str = 'raprompro',
         vmin: Optional[float] = None,
-        vmax: Optional[float] = None,                
+        vmax: Optional[float] = None,
         **kwargs,
     ):
         """
@@ -1077,15 +1196,19 @@ class MRRProData:
         """
         pcfg = self.plot_cfg  # instancia de PlotConfig
 
-        if kwargs.get("figsize", None) is None:
-            figsize = pcfg.figsize_quicklook
-        
-        if kwargs.get('cmap', None) is None:
-            cmap = pcfg.cmap
+        cmap = kwargs.get("cmap", pcfg.cmap)
+        figsize = kwargs.get("figsize", pcfg.figsize)
 
-        if variable not in self.ds:
-            raise KeyError(f"Variable '{variable}' does not exist.")
-        da = self.ds[variable]  # dims: (time, range)
+        if source == 'raw':
+            if variable not in self.ds:            
+                raise KeyError(f"Variable '{variable}' not found in raw Dataset.")
+            else:
+                da = self.ds[variable]  # dims: (time, range)
+        else:
+            if variable not in self.ds:
+                raise KeyError(f"Variable '{variable}' not found in raprompro Dataset.")
+            else:
+                da = self.raprompro[variable]
 
         fig, ax = plt.subplots(figsize=figsize)
         im = da.plot(
@@ -1108,7 +1231,7 @@ class MRRProData:
     # -------------------------------------------------------------------------
     def plot_spectrum(
         self,
-        target_time: datetime | np.datetime64,
+        target_datetime: datetime | np.datetime64,
         target_range: float,
         *,
         spectrum_var: str = "spectrum_reflectivity",
@@ -1116,32 +1239,32 @@ class MRRProData:
         label_type: str = "both",  # both|time|range
         fig: Figure | None = None,
         ax=None,
-        savefig: bool = False,        
+        savefig: bool = False,
         output_dir: Path | None = None,
-        **kwargs
+        **kwargs,
     ) -> tuple[Figure, Path | None]:
         """
         Plot a 1D spectrum at a specified time and range.
         Parameters
         ----------
-        target_time : datetime | np.datetime64
+        target_datetime : datetime | np.datetime64
             The target time for which to extract the spectrum.
         target_range : float
             The target range (in meters) for which to extract the spectrum.
         spectrum_var : str, optional
             The spectrum variable to plot. Default is "spectrum_reflectivity".
         velocity_limits : tuple[float, float] | None, optional
-            The velocity limits for the x-axis as (min, max). If None, limits are 
+            The velocity limits for the x-axis as (min, max). If None, limits are
             automatically determined from the data. Default is None.
         label_type : str, optional
-            The type of label to display. Options are "both" (time and range), 
+            The type of label to display. Options are "both" (time and range),
             "time", or "range". Default is "both".
         fig : Figure | None, optional
             An existing matplotlib Figure object. If None, a new figure is created.
             Default is None.
         ax : Axes | None, optional
-            An existing matplotlib Axes object. If None and fig is None, a new 
-            axes is created. If fig is provided but ax is None, the first axes 
+            An existing matplotlib Axes object. If None and fig is None, a new
+            axes is created. If fig is provided but ax is None, the first axes
             from fig is used. Default is None.
         savefig : bool, optional
             Whether to save the figure to a file. Default is False.
@@ -1166,21 +1289,16 @@ class MRRProData:
         """
         pcfg = self.plot_cfg
 
-        dpi = kwargs.get('dpi',None)
-        if dpi is None:
-            dpi = pcfg.dpi
+        dpi = kwargs.get("dpi", pcfg.dpi)
+        figsize = kwargs.get("figsize", pcfg.figsize)
 
-        figsize = kwargs.get('figsize', None)
-        if figsize is None:
-            figsize = pcfg.figsize 
-        
         if fig is None and ax is None:
             fig, ax = plt.subplots(figsize=figsize)
         elif fig is not None and ax is None:
             ax = fig.get_axes()[0]
 
         t_sel, r_sel, vel, spec, units = self._get_spectrum_1d(
-            target_time, target_range, spectrum_var=spectrum_var
+            target_datetime, target_range, spectrum_var=spectrum_var
         )
 
         # etiqueta
@@ -1193,7 +1311,7 @@ class MRRProData:
             label = f"{t_txt}"
 
         if not np.isnan(spec).all():
-            ax.plot(vel, spec, color=kwargs.get('color', 'black'), label=label)
+            ax.plot(vel, spec, color=kwargs.get("color", "black"), label=label)
 
         # ejes
         if velocity_limits is not None:
@@ -1225,15 +1343,15 @@ class MRRProData:
 
     def plot_spectra_by_range(
         self,
-        target_time,
+        target_datetime,
         ranges: list[float] | np.ndarray,
         *,
         use_db: bool = True,
         label_type: str = "range",
-        ncol: int = 2,        
+        ncol: int = 2,
         fig=None,
         ax=None,
-        savefig: bool = False,        
+        savefig: bool = False,
         output_dir=None,
         **kwargs,
     ):
@@ -1246,7 +1364,7 @@ class MRRProData:
 
         Parameters
         ----------
-        target_time : datetime | np.datetime64 | str
+        target_datetime : datetime | np.datetime64 | str
             Time to plot. Nearest time gate is used.
         ranges : list[float] | np.ndarray
             List of ranges [m]. Nearest range gate is used for each value.
@@ -1275,15 +1393,9 @@ class MRRProData:
         """
 
         pcfg = self.plot_cfg
+        dpi = kwargs.get("dpi", pcfg.dpi)
+        figsize = kwargs.get("figsize", pcfg.figsize)
 
-        dpi = kwargs.get('dpi', None)
-        if dpi is None:
-            dpi = pcfg.dpi        
-        
-        figsize = kwargs.get('figsize', None)
-        if figsize is None:
-            figsize = pcfg.figsize
-        
         ds = self.ds
 
         # --- sanity checks ---
@@ -1305,7 +1417,7 @@ class MRRProData:
             )
 
         # nearest time
-        t_sel = ds["time"].sel(time=target_time, method="nearest").values
+        t_sel = ds["time"].sel(time=target_datetime, method="nearest").values
 
         # build velocity axis (try to use provided coord; else infer)
         vel = None
@@ -1425,10 +1537,10 @@ class MRRProData:
 
     def plot_spectrogram(
         self,
-        target_time: datetime | np.datetime64,
+        target_datetime: datetime | np.datetime64,
         *,
-        spectrum_var: str = "spectrum_raw",
-        variable_threshold: str = 'spectrum_raw',
+        spectrum_var: str,
+        variable_threshold: str = "spectrum_raw",
         threshold_value: float = 0,
         range_limits: tuple[float, float] | None = None,
         vmin: float | None = None,
@@ -1437,14 +1549,14 @@ class MRRProData:
         ax=None,
         output_dir: Path | None = None,
         savefig: bool = False,
-        **kwargs
+        **kwargs,
     ) -> tuple[Figure, Path | None]:
         """
         Plot a spectrogram of MRR-PRO radar data for a specified time.
 
         Parameters
         ----------
-        target_time : datetime | np.datetime64
+        target_datetime : datetime | np.datetime64
             The target time for which to generate the spectrogram.
         spectrum_var : str, optional
             The spectrum variable to plot. Default is "spectrum_raw".
@@ -1481,19 +1593,9 @@ class MRRProData:
             If savefig=True but output_dir is None.
         """
         pcfg = self.plot_cfg
-
-        dpi = kwargs.get('dpi', None)
-        if dpi is None:
-            dpi = pcfg.dpi
-
-        cmap = kwargs.get('cmap', None)
-        if cmap is None:
-            cmap = pcfg.cmap
-
-        figsize = kwargs.get('figsize', None)
-        if figsize is None:
-            figsize = pcfg.figsize_spectrogram
-
+        dpi = kwargs.get("dpi", pcfg.dpi)
+        cmap = kwargs.get("cmap", pcfg.cmap)
+        figsize = kwargs.get("figsize", pcfg.figsize)
 
         if fig is None and ax is None:
             fig, ax = plt.subplots(figsize=figsize)
@@ -1501,10 +1603,8 @@ class MRRProData:
             ax = fig.get_axes()[0]
 
         t_sel, ranges, vel, spec2d, units = self._get_spectrogram_2d(
-            target_time, spectrum_var=spectrum_var,
-            range_limits=range_limits
+            target_datetime, spectrum_var=spectrum_var, range_limits=range_limits
         )
-
         t_txt = np.datetime_as_string(t_sel, unit="s")
 
         # spec2d expected shape: (range, bin)
@@ -1512,15 +1612,13 @@ class MRRProData:
         # extent = [float(vel[0]), float(vel[-1]), float(ranges[-1]), float(ranges[0])]
         extent = [vel[0], vel[-1], ranges[0], ranges[-1]]
 
-        breakpoint()
-
         im = ax.imshow(
             spec2d,
             aspect="auto",
             extent=extent,
             cmap=cmap,
             origin="lower",
-        )                    
+        )
 
         if vmin is not None or vmax is not None:
             im.set_clim(vmin=vmin, vmax=vmax)
@@ -1528,8 +1626,9 @@ class MRRProData:
         ax.axvline(x=0.0, color="black", linestyle="--", linewidth=1.0)
         ax.set_xlabel("Doppler velocity [m/s]")
         ax.set_ylabel("Range [m]")
-        title = f"MRR-PRO spectrogram \n {t_txt}"        
+        title = f"MRR-PRO spectrogram \n {t_txt}"
         ax.set_title(title)
+        ax.set_xlim(kwargs.get('x_limits', (-4, 12)))
 
         cbar = fig.colorbar(im, ax=ax)
         cbar.set_label(f"Spectrum [{units}]" if units else "Spectrum")
@@ -1548,55 +1647,133 @@ class MRRProData:
 
         return fig, filepath
 
+    def plot_DSDgram(
+        self,
+        *,
+        target_datetime: datetime.datetime,
+        range_limits: tuple[float, float] | None = None,
+        drop_limits: tuple[float, float] | None = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        savefig: bool = False,
+        output_dir: Path | None = None,
+        **kwargs
+        ):
+        """
+        DSD-gram: X=DropSize (mm), Y=range (m), color=dsd_3D, a un instante target_datetime.
+
+        Requiere self.raprompro con variable 'dsd_3D' dims ('time','range','DropSize').
+        """
+        if self.raprompro is None:
+            raise RuntimeError("self.raprompro no está cargado. Usa load_raprompro() o procesa antes.")
+
+        pcfg = self.plot_cfg
+        dpi = kwargs.get("dpi", pcfg.dpi)
+        cmap = kwargs.get("cmap", pcfg.cmap)
+        figsize = kwargs.get("figsize", pcfg.figsize)
+
+        ds = self.raprompro
+        if "dsd_3D" not in ds:
+            raise KeyError("self.raprompro no contiene la variable 'dsd_3D'.")
+
+        da = ds["dsd_3D"]
+
+        # Validación mínima de dims esperadas
+        expected = ("time", "range", "DropSize")
+        if tuple(da.dims) != expected:
+            raise ValueError(f"dsd_3D.dims esperadas {expected}, pero son {da.dims}")
+
+        # Selección temporal (análoga a spectrogram: instante concreto)
+        da2 = da.sel(time=target_datetime, method="nearest")  # dims -> (range, DropSize)
+
+        # Subsets opcionales
+        if range_limits is not None:
+            da2 = da2.sel(range=slice(range_limits[0], range_limits[1]))
+        if drop_limits is not None:
+            da2 = da2.sel(DropSize=slice(drop_limits[0], drop_limits[1]))
+
+        # Asegura orden para plot: (range, DropSize)
+        da2 = da2.transpose("range", "DropSize")
+
+        #Remove NaN in 'DropSize' in da2
+        X_ = da2["DropSize"].values  # mm        
+        da2 = da2.isel({"DropSize": np.isfinite(X_)})
+        
+        # Ejes
+        X = da2["DropSize"].values  # mm        
+        Y = da2["range"].values     # m
+        Z = da2.values.astype(float)
+
+        # OJO: en tu pipeline suele venir ya en log10, así que aquí NO aplico log10.
+        # Si algún día guardas en lineal, mejor añadir un flag explícito.
+        
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # pcolormesh con X/Y 1D y shading auto evita el error clásico de incompatibilidad        
+        m = ax.pcolormesh(X, Y, Z, shading="auto", vmin=vmin, vmax=vmax, cmap=cmap)
+
+        ax.set_xlabel("Drop diameter (mm)")
+        ax.set_ylabel("Range / Height (m)")
+        ax.set_xlim(kwargs.get('x_limits', (0.25, 10)))
+        # Título con el tiempo realmente seleccionado (nearest)
+        tsel = da2["time"].values
+        tlabel = np.datetime_as_string(tsel, unit="s") if np.issubdtype(np.asarray(tsel).dtype, np.datetime64) else str(tsel)
+        ax.set_title(f"DSD-gram \n {tlabel}")
+
+        cb = fig.colorbar(m, ax=ax)
+        cb.set_label(da.attrs.get("units", "dsd_3D"))
+
+        filepath = None
+        if savefig:
+            if output_dir is None:
+                output_dir = Path.cwd()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            ttag = np.datetime_as_string(tsel, unit="s").replace(":", "")
+            filepath = output_dir / self.path.name.replace(
+                ".nc", f"_DSDgram_{ttag}.png"
+            )
+            fig.savefig(filepath, dpi=dpi)
+
+        return fig, filepath
+
     def plot_DSD_by_range(
         self,
-        target_time,
+        target_datetime,
         ranges: list[float] | np.ndarray,
         *,
         use_log10: bool = False,
         vmin: float | None = None,
         vmax: float | None = None,
         ncol: int = 2,
+        savefig: bool = False,
+        output_dir=None,
         fig=None,
         ax=None,
-        savefig: bool = False,
-        output_dir=None,        
         **kwargs,
-    ):
+    ) -> tuple[Figure, Path | None]:
         """
-        Plot several N(D) curves at a fixed time for multiple provided ranges.
-
-        For each requested range (m), the nearest range gate is selected. Then
-        `index_spectra(time, range)` is used to map that gate to `n_spectra`, and:
-            - D := ds['D'][n_spectra, :]
-            - N := ds['N'][time, n_spectra, :]
-
-        The result is an overlay of curves N vs D for the selected ranges.
+        Plot several N(D) curves at a fixed time for multiple provided ranges,
+        using raprompro dsd_3D(time, range, DropSize).
 
         Parameters
         ----------
-        target_time : datetime | np.datetime64 | str
+        target_datetime : datetime | np.datetime64 | str
             Target time. Nearest time gate is used.
         ranges : list[float] | np.ndarray
             List of ranges in meters. Nearest range gate is used for each.
-        use_log10 : bool, default True
-            Plot log10(N) if True, else N linear.
+        use_log10 : bool, default False
+            If True, plot log10(N). If False, plot N in linear units (log y-scale).
+            NOTE: If dsd_3D is stored already in log10, conversion is handled automatically.
         vmin, vmax : float | None
             Optional y-limits (applied as ylim). If both are None, no limits set.
-        cmap : str, default "viridis"
-            Colormap used to assign line colors by range.
         ncol : int, default 2
             Legend columns.
-        figsize : tuple, default (10,7)
-            Figure size if fig/ax not provided.
         fig, ax : matplotlib Figure/Axes, optional
             Reuse existing axes.
         output_dir : Path, optional
             Output directory if savefig=True.
         savefig : bool, default False
             Save to disk if True.
-        dpi : int, default 200
-            Save dpi.
 
         Returns
         -------
@@ -1604,38 +1781,28 @@ class MRRProData:
         """
         pcfg = self.plot_cfg
 
-        dpi = kwargs.get('dpi', None)
-        if dpi is None:
-            dpi = pcfg.dpi
+        dpi = kwargs.get("dpi", pcfg.dpi)
+        cmap = kwargs.get("cmap", pcfg.cmap)
+        figsize = kwargs.get("figsize", pcfg.figsize)
+        marker = kwargs.get("marker", pcfg.marker)
+        markersize = kwargs.get("markersize", pcfg.markersize)
+        legend_fontsize = kwargs.get("legend_fontsize", pcfg.legendfontsize)
 
-        cmap = kwargs.get('cmap', None)
-        if cmap is None:
-            cmap = pcfg.cmap
+        # --- sanity checks: raprompro ---
+        if self.raprompro is None:
+            raise RuntimeError("raprompro not loaded. Use load_raprompro().")
+        ds_rp = self.raprompro
+        if "dsd_3D" not in ds_rp:
+            raise KeyError("raprompro missing required variable 'dsd_3D'. Check save_dsd_3d is True.")
+        da = ds_rp["dsd_3D"]
 
-        figsize = kwargs.get('figsize', None)
-        if figsize is None:
-            figsize = pcfg.figsize
+        # dims esperadas
+        for d in ("time", "range", "DropSize"):
+            if d not in da.dims:
+                raise ValueError(f"dsd_3D must have dim '{d}'. dims={da.dims}")
 
-        marker = kwargs.get('marker', None)
-        if marker is None:
-            marker = pcfg.marker
-        
-        markersize = kwargs.get('markersize', None)
-        if markersize is None:
-            markersize = pcfg.markersize
-
-        ds = self.ds
-
-        # --- sanity checks ---
-        for v in ("N", "D", "index_spectra", "time", "range"):
-            if v not in ds:
-                raise KeyError(f"Dataset missing required variable '{v}'")
-        for d in ("n_spectra", "spectrum_n_samples"):
-            if d not in ds.dims:
-                raise KeyError(f"Dataset missing required dimension '{d}'")
-
-        # --- nearest time ---
-        t_sel = ds["time"].sel(time=target_time, method="nearest").values
+        # --- nearest time (en el grid raprompro) ---
+        t_sel = ds_rp["time"].sel(time=target_datetime, method="nearest").values
 
         # --- figure/axes ---
         if fig is None and ax is None:
@@ -1646,58 +1813,84 @@ class MRRProData:
         elif fig is None and ax is not None:
             fig = ax.figure
 
-        # --- color assignment by range ---
+        # --- validate ranges ---
         ranges_in = np.asarray(ranges, dtype=float)
         if ranges_in.size == 0:
             raise ValueError("ranges must contain at least one value.")
-
-        # Use a matplotlib colormap without importing extra helpers
+                
+        # --- colormap colors ---
         cm = plt.get_cmap(cmap)
-        # Keep ordering stable (requested order), but normalize colors by index
         colors = [cm(i / max(1, ranges_in.size - 1)) for i in range(ranges_in.size)]
 
-        # Get arrays once
-        D_all = ds["D"].values.astype(float)  # (n_spectra, bin)
-        N_all = ds["N"].sel(time=t_sel).values.astype(float)  # (n_spectra, bin)
+        # --- infer whether data is stored in log10 ---
+        units = (da.attrs.get("units", "") or "").lower()
+        data_is_log10 = "log10" in units or "log" in units  # conservador
+
+        # --- drop size axis ---
+        D = da["DropSize"].values.astype(float)
+
+        # Heurística suave: si parece estar en metros (muy pequeño), convierte a mm.
+        # (Si ya es mm, no hace nada.)
+        D_scale = 1.0
+        D_units = da["DropSize"].attrs.get("units", "")
+        if D_units.lower() in ("m", "meter", "metre"):
+            D_scale = 1000.0
+            D_units_out = "mm"
+        elif np.nanmax(D) < 0.05:  # típicamente <5 cm; si <0.05, suele ser metros
+            D_scale = 1000.0
+            D_units_out = "mm"
+        else:
+            D_units_out = "mm" if D_units == "" else D_units
 
         # --- loop ranges ---
         plotted_any = False
+        N_minimum_thresh = float(kwargs.get("N_minimum_threshold", 0.0))
+
         for i, r_req in enumerate(ranges_in):
-            r_sel = float(ds["range"].sel(range=r_req, method="nearest").values.item())
-            
-            idx_raw = (
-                ds["index_spectra"]
-                .sel(time=t_sel, range=r_sel, method="nearest")
-                .values
-            )
-            if not np.isfinite(idx_raw):
-                continue
-            idx = int(idx_raw)
-            if not (0 <= idx < ds.sizes["n_spectra"]):
-                continue
+            r_sel = float(ds_rp["range"].sel(range=r_req, method="nearest").values.item())
 
-            D = D_all[idx, :].astype(float)
-            N = N_all[idx, :].astype(float)
+            # Extrae el perfil N(D) a ese tiempo y rango
+            # da_sel dims -> (DropSize,)
+            da_sel = da.sel(time=t_sel, range=r_sel, method="nearest")
+            N_raw = da_sel.values.astype(float)
 
-            # Clean N (ignore <=0)
-            N_minimum_thresh = float(kwargs.get("N_minimum_threshold", 0.0))
-            N = np.where(N >= N_minimum_thresh, N, np.nan)
-
-            # Ensure D increases
-            if D.size >= 2 and D[0] > D[-1]:
-                D = D[::-1]
-                N = N[::-1]
+            # Limpieza: umbral mínimo en el dominio lineal
+            if data_is_log10:
+                # En log10, el umbral en lineal equivale a log10(thresh). Si thresh=0, no aplica.
+                if N_minimum_thresh > 0:
+                    thr_log = np.log10(N_minimum_thresh)
+                    N_raw = np.where(N_raw >= thr_log, N_raw, np.nan)
+            else:
+                N_raw = np.where(N_raw >= N_minimum_thresh, N_raw, np.nan)
 
             # Drop non-finite
-            ok = np.isfinite(D) & np.isfinite(N)
+            ok = np.isfinite(D) & np.isfinite(N_raw)
             if not np.any(ok):
                 continue
 
-            y = np.log10(N[ok]) if use_log10 else N[ok]
-            x = D[ok]
+            x = (D[ok] * D_scale).astype(float)
+
+            # Conversión según lo que quieras visualizar
+            if use_log10:
+                # y = log10(N)
+                y = N_raw[ok] if data_is_log10 else np.log10(N_raw[ok])
+                ax.set_yscale("linear")
+                ylab = r"$\log_{10}(N)\ [\mathrm{m^{-3}\,mm^{-1}}]$"
+            else:
+                # y = N (lineal), escala log en eje Y
+                y = (10.0 ** N_raw[ok]) if data_is_log10 else N_raw[ok]
+                # evita <=0 para escala log
+                y = np.where(y > 0, y, np.nan)
+                ok2 = np.isfinite(y)
+                x = x[ok2]
+                y = y[ok2]
+                if x.size == 0:
+                    continue
+                ax.set_yscale("log")
+                ylab = r"$N\ [\mathrm{m^{-3}\,mm^{-1}}]$"
 
             ax.plot(
-                x * 1000,
+                x,
                 y,
                 color=colors[i],
                 label=f"{r_sel:.1f} m",
@@ -1707,31 +1900,22 @@ class MRRProData:
             plotted_any = True
 
         if not plotted_any:
-            raise ValueError("No valid spectra found for the provided ranges/time.")
+            raise ValueError("No valid DSD curves found for the provided ranges/time.")
 
         # --- labels / title ---
-        d_units = "mm"
-        xlab = f"D [{d_units}]".strip() if d_units else "D"
-        ax.set_xlabel(xlab)
-
-        ax.set_ylabel(
-            r"$log10(N [mm^{-1} m^{-3}])$" if use_log10 else r"$N [mm^{-1} m^{-3}]$"
-        )
+        ax.set_xlabel(f"D [{D_units_out}]")
+        ax.set_ylabel(ylab)
 
         t_txt = np.datetime_as_string(t_sel, unit="s")
-        ax.set_title(f"MRR-PRO N(D) by range \n {t_txt}")
-
-        # set log scale in Y axis
-        ax.set_yscale("linear" if use_log10 else "log")
+        ax.set_title(f"RaProMPro N(D) by range\n{t_txt}")
 
         ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-
-        ax.legend(ncol=ncol, loc="best", fontsize=9)
+        ax.legend(ncol=ncol, loc="best", fontsize=legend_fontsize)
 
         if vmin is not None or vmax is not None:
             ax.set_ylim(vmin, vmax)
 
-        if kwargs.get("xlimits", None) != None:
+        if kwargs.get("xlimits", None) is not None:
             ax.set_xlim(kwargs["xlimits"])
 
         fig.tight_layout()
@@ -1742,232 +1926,42 @@ class MRRProData:
                 raise ValueError("output_dir must be provided if savefig=True.")
             output_dir.mkdir(parents=True, exist_ok=True)
             ttag = np.datetime_as_string(t_sel, unit="s").replace(":", "")
-            filepath = output_dir / self.path.name.replace(
-                ".nc", f"_DSD_by_range_{ttag}.png"
-            )
+            filepath = output_dir / self.path.name.replace(".nc", f"_DSD_by_range_{ttag}.png")
             fig.savefig(filepath, dpi=dpi)
 
         return fig, filepath
 
-    def plot_DSD_gram(
-        self,
-        target_time,
-        *,
-        range_limits: tuple[float, float] | None = None,
-        use_log10: bool = True,
-        vmin: float | None = None,
-        vmax: float | None = None,
-        fig=None,
-        ax=None,
-        output_dir=None,
-        savefig: bool = False,
-        **kwargs,
-    ):
-        """
-        Plot a Range–D gram using MRR-PRO spectral variable N and diameter D.
 
-        Y-axis: range (m)
-        X-axis: D (from ds['D'])
-        Color: N (optionally log10-scaled)
-
-        NOTE:
-        - This is NOT a physical DSD inversion.
-        - N is a spectral quantity indexed by Doppler/size bins.
-        """
-        pcfg = self.plot_cfg
-
-        dpi = kwargs.get('dpi', None)
-        if dpi is None:
-            dpi = pcfg.dpi
-
-        cmap = kwargs.get('cmap', None)
-        if cmap is None:
-            cmap = pcfg.cmap
-
-        figsize = kwargs.get('figisze', None)
-        if figsize is None:
-            figsize = pcfg.figsize_spectrogram
-
-        ds = self.ds
-
-        # --- Sanity checks ---
-        for v in ("N", "D", "index_spectra", "range", "time"):
-            if v not in ds:
-                raise KeyError(f"Dataset missing required variable '{v}'")
-
-        # --- Select nearest time ---
-        t_sel = ds["time"].sel(time=target_time, method="nearest").values
-
-        # --- Select range slice ---
-        if range_limits is None:
-            r0 = float(ds["range"].min().values)
-            r1 = float(ds["range"].max().values)
-        else:
-            r0, r1 = map(float, range_limits)
-
-        # --- Select range slice ---
-        if range_limits is None:
-            r0 = float(ds["range"].min().values)
-            r1 = float(ds["range"].max().values)
-        else:
-            r0, r1 = map(float, range_limits)
-
-        ranges = ds["range"].sel(range=slice(r0, r1)).values.astype(float)
-
-        if ranges.size == 0:
-            raise ValueError("No range gates selected for the given range_limits.")
-
-        # --- Map range -> n_spectra indices (sanitize!) ---
-        idx_raw = ds["index_spectra"].sel(time=t_sel, range=slice(r0, r1)).values
-
-        # idx_raw is float; it may contain NaN. Convert safely.
-        idx_vec = np.full(idx_raw.shape, -1, dtype=int)
-        finite = np.isfinite(idx_raw)
-        idx_vec[finite] = idx_raw[finite].astype(int)
-
-        n_spec = ds.sizes["n_spectra"]
-        valid_idx = (idx_vec >= 0) & (idx_vec < n_spec)
-
-        # If some gates are invalid, mask them out (keep plot consistent)
-        # We'll keep ranges but set data to NaN where invalid.
-        # (Alternative: drop invalid ranges; but this keeps y-grid intact.)
-        D_all = ds["D"].values.astype(float)  # (n_spectra, bin)
-        N_all = ds["N"].sel(time=t_sel).values.astype(float)  # (n_spectra, bin)
-
-        X = np.full((ranges.size, D_all.shape[1]), np.nan, dtype=float)
-        Z = np.full((ranges.size, D_all.shape[1]), np.nan, dtype=float)
-
-        X[valid_idx, :] = D_all[idx_vec[valid_idx], :]
-        Z[valid_idx, :] = N_all[idx_vec[valid_idx], :]
-
-        # Clean invalid/negative N
-        Z = np.where(Z > 0.0, Z, np.nan)
-
-        # Log scaling
-        if use_log10:
-            with np.errstate(divide="ignore", invalid="ignore"):
-                Zplot = np.log10(Z)
-            Zplot[~np.isfinite(Zplot)] = np.nan
-            clabel = "log10(N)"
-        else:
-            Zplot = Z
-            clabel = "N"
-
-        # Ensure range increases upward
-        if ranges.size >= 2 and ranges[0] > ranges[-1]:
-            ranges = ranges[::-1]
-            X = X[::-1, :]
-            Zplot = Zplot[::-1, :]
-
-        # --- Build explicit cell edges (critical for non-monotonic 2D X) ---
-        # D edges per range gate
-        # --- D edges must be (M+1, N+1) to match R_edges and Zplot ---
-        M, N = X.shape  # X is (range, bin)
-
-        # First compute per-row edges along D: (M, N+1)
-        D_row_edges = np.full((M, N + 1), np.nan, dtype=float)
-        D_row_edges[:, 1:-1] = 0.5 * (X[:, 1:] + X[:, :-1])
-        D_row_edges[:, 0] = X[:, 0] - (D_row_edges[:, 1] - X[:, 0])
-        D_row_edges[:, -1] = X[:, -1] + (X[:, -1] - D_row_edges[:, -2])
-
-        # Then expand to (M+1, N+1) by adding one extra row (range-edge direction)
-        D_edges = np.full((M + 1, N + 1), np.nan, dtype=float)
-        D_edges[1:-1, :] = 0.5 * (D_row_edges[1:, :] + D_row_edges[:-1, :])
-
-        # Top/bottom extrapolation
-        D_edges[0, :] = D_row_edges[0, :]
-        D_edges[-1, :] = D_row_edges[-1, :]
-
-        # Range edges (1D) then expand to 2D
-        r_edges = np.empty(ranges.size + 1, dtype=float)
-        r_edges[1:-1] = 0.5 * (ranges[1:] + ranges[:-1])
-        r_edges[0] = ranges[0] - (r_edges[1] - ranges[0])
-        r_edges[-1] = ranges[-1] + (ranges[-1] - r_edges[-2])
-        R_edges = np.tile(r_edges[:, None], (1, D_edges.shape[1]))
-
-        if fig is None and ax is None:
-            fig, ax = plt.subplots(figsize=figsize)
-        elif fig is not None and ax is None:
-            axes = fig.get_axes()
-            if len(axes) == 0:
-                ax = fig.add_subplot(111)
-            else:
-                ax = axes[0]
-        elif fig is None and ax is not None:
-            fig = ax.figure
-
-        # Plot with edges: Zplot is (M,N), edges are (M+1,N+1)
-        im = ax.pcolormesh(
-            D_edges,
-            R_edges,
-            Zplot,
-            shading="auto",
-            cmap=cmap,
-        )
-
-        if vmin is not None or vmax is not None:
-            im.set_clim(vmin=vmin, vmax=vmax)
-
-        t_txt = np.datetime_as_string(t_sel, unit="s")
-        ax.set_title(f"DSD gram \n {t_txt}")
-        ax.set_xlabel("D")
-        ax.set_ylabel("Range [m]")
-
-        ax.set_xlim(0, np.nanmax(D_edges))
-
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label(clabel)
-
-        fig.tight_layout()
-
-        # --- Save if requested ---
-        filepath = None
-        if savefig:
-            if output_dir is None:
-                raise ValueError("output_dir must be provided if savefig=True.")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            filepath = output_dir / self.path.name.replace(
-                ".nc", f"_DSDgram_{t_txt.replace(':','')}.png"
-            )
-            fig.savefig(filepath, dpi=dpi)
-
-        return fig, filepath
-
-    def plot_raprompro_profiles(
+    def plot_microphysical_properties_profiles(
         self,
         target_datetime: datetime.datetime,
-        figsize: tuple[float, float] = (18, 12),
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs,
     ) -> tuple[Figure, np.ndarray, Path | None]:
         """
-        RaProMPro diagnostic profile (single figure, 5 axes; Y = height):
+        RaProMPro diagnostic profile (single figure, 4 axes; Y = height):
         1) Ze, Zea, Z_all, Za
         2) Dm
         3) Nw
-        4) LWC
-        5) RR
+        4) LWC, LWC_all
 
         Uses self.ds and selects the nearest profile to `target_datetime`.
         Raises if the dataset does not look RaProMPro-preprocessed.
         """
-        ds = self.ds
-
         # --- minimal "preprocessed?" check ---
-        if not self._is_processed():
-            raise RuntimeError(
-                "Dataset has not been RaProMPro-preprocessed. "
-                "Run process_rarpom() before calling plot_rarpom_diagnostic_profile()."
-            )
-
-        # --- vertical coordinate ---
-        elif "range" in ds.coords:
-            zname = "range"
+        
+        if self._is_processed():
+            preprocessed_status = "RaProMPro-preprocessed"
         else:
             raise RuntimeError(
-                "No vertical coordinate found: expected 'height' or 'range'."
+                "Dataset does not appear to be RaProMPro-preprocessed. Missing expected variables or attributes."
             )
+
+        pcfg = self.plot_cfg
+        figsize = kwargs.get("figsize", pcfg.figsize_profiles)
+
+        ds = self.raprompro
 
         if "time" not in ds.coords:
             raise RuntimeError("No 'time' coordinate found in dataset.")
@@ -1980,10 +1974,10 @@ class MRRProData:
         except Exception:
             sel_time_str = str(sel_time)
 
-        z = prof[zname].values.astype(float) / 1000.0  # to km
+        z = prof["range"].values.astype(float) / 1000.0  # to km
 
         fig, axs = plt.subplots(
-            ncols=5,
+            ncols=4,
             figsize=figsize,
             sharey=True,
             constrained_layout=True,
@@ -1991,60 +1985,80 @@ class MRRProData:
 
         # 1) Reflectivities
         ax = axs[0]
-        ax.plot(prof["Ze"].values, z, label="Ze", linewidth=1, marker="o", markersize=4)
-        ax.plot(
-            prof["Zea"].values, z, label="Zea", linewidth=1, marker="o", markersize=4
-        )
-        ax.plot(
-            prof["Z_all"].values,
-            z,
-            label="Z_all",
-            linewidth=1,
-            marker="o",
-            markersize=4,
-        )
-        ax.plot(prof["Za"].values, z, label="Za", linewidth=1, marker="o", markersize=4)
+        Z_variables = ["Ze", "Za", "Zea", "Z_all"]
+        markers = {'Ze': 'x', "Za": 'v', 'Zea': 'o', 'Z_all': '^'}
+        for Z_ in Z_variables:
+            if Z_ not in prof.data_vars:
+                continue
+            # if Z_ is 'Ze':
+            #     breakpoint()
+            ax.plot(prof[Z_].values, z, label=Z_, linewidth=1, marker=markers[Z_], markersize=4)
+
         ax.set_xlabel("Reflectivities, dBZ")
-        ax.set_ylabel(f"{zname} (km)")
+        ax.set_ylabel(f"{'range'} (km)")
+        ax.set_xlim(kwargs.get("x_limits", (0, 45)))
         ax.grid(True)
         ax.legend(loc="best")
 
         # 2) Dm
         ax = axs[1]
         ax.plot(prof["Dm"].values, z, linewidth=1, marker="o", markersize=4)
-        ax.set_xlabel("Dm, mm")
+        ax.set_xlabel(r"$D_m$, mm")
+        ax.set_xlim(kwargs.get("Dm_limits", (0.0, 4)))
         ax.grid(True)
 
         # 3) Nw
         ax = axs[2]
         ax.plot(prof["Nw"].values, z, linewidth=1, marker="o", markersize=4)
-        ax.set_xlabel("log10(Nw mm⁻¹ m⁻³)")
+        ax.set_xlabel(r"$log_{10}(N_w \, mm^{-1} m^{-3})$")
+        ax.set_xlim(kwargs.get("Nw_limits", (0., 6.0)))
         ax.grid(True)
 
         # 4) LWC
         ax = axs[3]
-        ax.plot(prof["LWC"].values, z, linewidth=1, marker="o", markersize=4)
-        ax.set_xlabel("LWC, g m⁻³")
-        ax.grid(True)
+        ax.plot(
+            prof["LWC_all"].values,
+            z,
+            linewidth=5,
+            marker="v",
+            markersize=10,
+            label="LWC_all",
+        )
+        delta = kwargs.get("LWC_all_marker_color_delta", 0.3)
+        color_light = tuple(
+            min(1.0, c + delta) for c in mcolors.to_rgb(ax.lines[-1].get_color())
+        )
+        ax.plot(
+            prof["LWC"].values,
+            z,
+            linewidth=1,
+            marker="o",
+            markersize=4,
+            label="LWC",
+            color=color_light,
+        )
+        ax.legend(loc="best")
 
-        # 5) RR
-        ax = axs[4]
-        ax.plot(prof["RR"].values, z, linewidth=1, marker="o", markersize=4)
-        ax.set_xlabel("RR, mm h⁻¹")
+        # get color from previous plot
+
+        ax.set_xlabel(r"LWC, g m_^{-3}")
+        ax.set_xlim(kwargs.get("LWC_limits", (0, 3.0)))
         ax.grid(True)
 
         if kwargs.get("y_limits", None) is not None:
             for ax in axs:
                 ax.set_ylim(kwargs["y_limits"])
 
-        fig.suptitle(f"RaProMPro diagnostic profile — {sel_time_str}", fontsize=30)
+        fig.suptitle(f"{preprocessed_status} MRR-Pro \n {sel_time_str}", fontsize=30)
 
+        output_path = None
         if savefig:
             if output_dir is None:
                 output_dir = Path().cwd()
             datestr = target_datetime.strftime("%Y%m%d_%H%M%S")
             output_path = (
-                output_dir / f"{self.path.stem}_{datestr}_raprompro_profiles.png"
+                output_dir
+                / f"{self.path.stem}_{datestr}_{preprocessed_status}_profiles.png"
             )
             fig.savefig(output_path)
 
@@ -2063,8 +2077,7 @@ class MRRProData:
     ) -> tuple[Figure, Path | None]:
         """
         Plots the rain process in a specified atmospheric layer at a given datetime.
-        This method generates a scatter plot of two selected variables (x and y) from the dataset,
-        colored by a third variable (z), representing the difference in properties within a specified
+        This method generates a scatter plot of two selected variables (x and y) from the dataset,        
         vertical layer. The plot can optionally be saved to disk.
         Parameters
         ----------
@@ -2505,7 +2518,7 @@ class MRRProData:
         threshold_value: float = -5.0,
         min_points_ols: int = 10,
         eps_q: float = 0.01,
-        rgb_q: float = 0.02,        
+        rgb_q: float = 0.02,
         tol_center: float = 0.05,
         min_strength: float = 0.10,
         vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
@@ -2725,7 +2738,7 @@ class MRRProData:
         Devuelve: (fig, axes, out_ds)
         """
 
-        # imports locales para no forzar dependencias si no se usa        
+        # imports locales para no forzar dependencias si no se usa
 
         # 1) Clasificación + hex + rgb
         out = mrr.classify_microphysical_process_from_trends(
@@ -2738,7 +2751,7 @@ class MRRProData:
             eps_q=eps_q,
             rgb_q=rgb_q,
             tol_center=tol_center,
-            min_strength=min_strength,            
+            min_strength=min_strength,
         )
 
         t = out["time"].values

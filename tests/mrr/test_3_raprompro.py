@@ -13,8 +13,8 @@ from mrrpropy.raw_class import MRRProData
 # Ruta por defecto al fichero de prueba.
 # Puedes sobrescribirla con la variable de entorno MRRPRO_TEST_FILE.
 before_path = Path(r"./tests/data/RAW/mrrpro81/2025/03/08/20250308_120000.nc")
-after_path  = Path(before_path.absolute().as_posix().replace('RAW', 'PRODUCTS')).parent / f"{before_path.stem}_processed.nc"
-OUTPUT_DIR = Path(r"./tests/figures/mrrpro_processing_rarprompro_outputs")
+after_path  = Path(before_path.absolute().as_posix().replace('RAW', 'PRODUCTS')).parent / f"{before_path.stem}_raprompro.nc"
+OUTPUT_DIR = Path(r"./tests/figures/mrrpro_raprompro_intercomparison")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 @pytest.fixture(scope="session")
@@ -32,14 +32,13 @@ def test_processing_raprompro(mrr) -> xr.Dataset:
     Ejecuta una vez el procesado RaProM-Pro y reutiliza el resultado en todos los tests.
     """
 
-    out = mrr.process_raprompro()
-    assert isinstance(out, xr.Dataset)
-    out.to_netcdf(after_path)
-    out.close()
+    out = mrr.process_raprompro(save_dsd_3d=True, save_spe_3d=True, save=True, output_dir = after_path.parent)
+    
+    assert isinstance(out, xr.Dataset)    
 
 
-def test_rarpom_processing():
-    """Verifica que el procesamiento RARPOM produce un Dataset."""
+def test_process_raprompro():
+    """Verifica que el procesamiento RaProM-Pro produce un Dataset."""
     ds0 = xr.open_dataset(before_path)
     ds1 = xr.open_dataset(after_path)
 
