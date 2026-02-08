@@ -19,7 +19,7 @@ from mrrpropy.raw_class import (
 MRR_PATH = Path(
     r"./tests/data/PRODUCTS/mrrpro81/2025/03/08/20250308_120000_processed.nc"
 )
-OUTPUT_DIR = Path(r"./tests/figures/mrr_plots_rain_process")
+OUTPUT_DIR = Path(r"./tests/figures/mrr_plots_hexagrams")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -67,19 +67,29 @@ def test_compute_layer_trend_ols(mrr):
 def test_plot_hexagram_event_in_layer(mrr):
     """To test plot hexagram."""
     result = mrr.plot_hexagram_event_in_layer(
-        period = (datetime(2025, 3, 8, 12, 0, 0), datetime(2025, 3, 8, 13, 0, 0)),
+        period = (datetime(2025, 3, 8, 12, 0, 0), datetime(2025, 3, 8, 12, 31, 0)),
         layer = (1000., 2000.),
-        k = 1,
+        k = 11,
         eps_q = 0.01,
         rgb_q = 0.02,
         vars_trend = ("Dm", "Nw", "LWC"),
         nmin = 10,
-        figsize = (10, 10),
-        marker_size = 35.0,
+        figsize = (15, 12),
+        marker_size = 70.0,
         alpha = 0.9,
-        savefig = False,
+        savefig = True,
         output_dir = OUTPUT_DIR,
         dpi = 200,
+        **{"alpha_hexagram": 0.5}
     )
 
-    assert True
+    assert result is not None
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+    fig, filepath = result
+    assert isinstance(fig, Figure)
+    assert filepath is not None
+    assert filepath.exists()
+
+# def test_microphysical_rain(mrr):
+

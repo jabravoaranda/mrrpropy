@@ -5,14 +5,37 @@ from pathlib import Path
 
 from matplotlib import pyplot as plt
 import numpy as np
+import pytest
 import xarray as xr
+
+from mrrpropy.raw_class import MRRProData
 
 # Ruta por defecto al fichero de prueba.
 # Puedes sobrescribirla con la variable de entorno MRRPRO_TEST_FILE.
 before_path = Path(r"./tests/data/RAW/mrrpro81/2025/03/08/20250308_120000.nc")
 after_path  = Path(before_path.absolute().as_posix().replace('RAW', 'PRODUCTS')).parent / f"{before_path.stem}_processed.nc"
-out_dir = Path(r"./tests/figures/mrrpro_processing_rarprompro_outputs")
-out_dir.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR = Path(r"./tests/figures/mrrpro_processing_rarprompro_outputs")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+@pytest.fixture(scope="session")
+def mrr():
+    """Carga una instancia de MRRProData para todos los tests."""
+    if not before_path.exists():
+        pytest.skip(f"No se encuentra el archivo de data: {before_path}")
+    mrr = MRRProData.from_file(before_path)
+    yield mrr
+    mrr.close()
+
+
+def test_processing_raprompro(mrr) -> xr.Dataset:
+    """
+    Ejecuta una vez el procesado RaProM-Pro y reutiliza el resultado en todos los tests.
+    """
+
+    out = mrr.process_raprompro()
+    assert isinstance(out, xr.Dataset)
+    out.to_netcdf(after_path)
+    out.close()
 
 
 def test_rarpom_processing():
@@ -106,18 +129,18 @@ def test_rarpom_processing():
         plt.title(f"1:1 {v0} vs {v1}  |  n={st['n']}  bias={st['bias']:.3g}  rmse={st['rmse']:.3g}  r={st['corr']:.3f}", fontsize=12)
         plt.xlim(lo, hi)
         plt.ylim(lo, hi)
-        fig.savefig(out_dir / f"correlation_check_{v0}_vs_{v1}.png", dpi=200, bbox_inches="tight")
+        fig.savefig(OUTPUT_DIR / f"correlation_check_{v0}_vs_{v1}.png", dpi=200, bbox_inches="tight")
         plt.close(fig)
 
     # Save metrics
     import csv
-    with open(out_dir / "metrics.csv", "w", newline="", encoding="utf-8") as f:
+    with open(OUTPUT_DIR / "metrics.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=["var_before","var_after","units","n","bias","rmse","corr","slope","intercept"])
         w.writeheader()
         for r in rows:
             w.writerow({k: r.get(k) for k in w.fieldnames})
 
-    print(f"Saved plots + metrics to: {out_dir.resolve()}")
+    print(f"Saved plots + metrics to: {OUTPUT_DIR.resolve()}")
     
     # Assert r values > 0.9 for key variables
     key_vars = ["Ze", "RR", "LWC", "VEL"]

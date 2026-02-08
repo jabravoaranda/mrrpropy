@@ -120,6 +120,17 @@ def build_rgb_from_trends(
     return out
 
 
+def _sign_from_center(c: np.ndarray, tol: float = 0.05) -> np.ndarray:
+    # c en [0,1], centro 0.5
+    s = np.zeros_like(c, dtype=int)
+    s[c > 0.5 + tol] = +1
+    s[c < 0.5 - tol] = -1
+    return s
+
+def _strength(c: np.ndarray) -> np.ndarray:
+    # 0..1
+    return np.clip(np.abs(c - 0.5) / 0.5, 0.0, 1.0)
+
 def get_hexagram_assets(k: int, valid_threshold: float = -0.5):
     r_hex, g_hex, b_hex, num_hex = generate_rgb_hex(k=k)
 

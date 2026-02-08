@@ -129,15 +129,3 @@ def test_gate_spectrum(mrr):
     assert vel_raw.shape == vel.shape
     assert spec_raw.shape == spec.shape
 
-def test_processing_raprompro(mrr) -> xr.Dataset:
-    """
-    Ejecuta una vez el procesado RaProM-Pro y reutiliza el resultado en todos los tests.
-    """
-
-    out = mrr.process_raprompro()
-    breakpoint()
-    out.to_netcdf(OUTPUT_DIR / f"{MRR_PATH.stem}_processed.nc")
-    if not isinstance(out, xr.Dataset):
-        pytest.fail("process_raprompro() no devolvió un xr.Dataset.")
-    return out
-
