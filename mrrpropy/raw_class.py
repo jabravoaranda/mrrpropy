@@ -61,6 +61,7 @@ class PlotConfig:
     figsize_quicklook: tuple[float, float] = (12, 8)
     figsize_spectrogram: tuple[float, float] = (10, 14)
     figsize_profiles: tuple[float, float] = (14, 10)
+    figsize_multipanel: tuple[float, float] = (14, 10) 
     cmap: str = "jet"
     marker: str = "o"
     markersize: float = 10.0
@@ -68,7 +69,7 @@ class PlotConfig:
     alpha_points: float = 0.9
     alpha_hexagram: float = 0.25
     show_path_line: bool = True
-    line_width: float = 0.8
+    linewidth: float = 0.8
     dpi: int = 200
 
 
@@ -2064,7 +2065,7 @@ class MRRProData:
 
         return fig, axs, output_path
 
-    def plot_rain_process_in_layer(
+    def plot_rain_process_in_layer_2D(
         self,
         target_datetime: datetime | tuple[datetime, datetime],
         layer: tuple[float, float],
@@ -2112,9 +2113,17 @@ class MRRProData:
             If any of the specified variables (x, y, z) are not found in the dataset.
         """
 
+        if self._is_processed():
+            ds = self.raprompro
+        else:
+            raise RuntimeError('Dataset is not processed.')
+        
+        pcfg = self.plot_cfg
+        figsize = kwargs.get('figsize', pcfg.figsize)
+
         # Check x,y,z exists as variable in self.ds, otherwise raise error
         for var in (x, y, z):
-            if var not in self.ds:
+            if var not in ds:
                 raise KeyError(f"Variable '{var}' not found in dataset.")
 
         # Check time tuple increasing
@@ -2126,11 +2135,11 @@ class MRRProData:
 
         # get data profiles from self.data
         if isinstance(target_datetime, datetime):
-            ds_ = self.ds.sel(time=target_datetime, method="nearest").sel(
+            ds_ = ds.sel(time=target_datetime, method="nearest").sel(
                 range=slice(*layer)
             )
         else:
-            ds_ = self.ds.sel(time=slice(*target_datetime)).sel(range=slice(*layer))
+            ds_ = ds.sel(time=slice(*target_datetime)).sel(range=slice(*layer))
 
         # Get the difference of all properties between the range with respect to the zmax (end - start)
         last_range = ds_.range[-1]
@@ -2150,7 +2159,7 @@ class MRRProData:
         y_abs_max = np.abs(ds_[y].values[np.isfinite(ds_[y].values)]).max()
         z_abs_max = np.abs(ds_[z].values[np.isfinite(ds_[z].values)]).max()
         # create a figure with same y and x axis size
-        fig, ax = plt.subplots(figsize=kwargs.get("figsize", (12, 6)))
+        fig, ax = plt.subplots(figsize=figsize)
 
         # for time_ in diff_.time:
         ds_.plot.scatter(
@@ -2199,11 +2208,12 @@ class MRRProData:
                 datestr = target_datetime.strftime("%Y%m%d_%H%M%S")
             output_path = (
                 output_dir
-                / f"{self.path.stem}_{datestr}_rain_process_layer_{zmin}-{zmax}m.png"
+                / f"rain_process_2D_{self.path.stem}_{datestr}_{zmin}-{zmax}m.png"
             )
             fig.savefig(output_path)
 
         return fig, output_path if savefig else None
+
 
     def compute_layer_trend_ols(
         self,
@@ -2220,74 +2230,118 @@ class MRRProData:
         min_points_ols: int = 10,
     ) -> xr.Dataset:
         """
-        Compute b_X (1/m), F_X, and R^2 for X in vars using OLS of ln(X) vs depth from top.
+        Compute b_X (1/m), F_X, and R^2 for X in vars using OLS of ln(X) vs depth from top,
+        and store the data selection used for each fit (masks + eps + counts).
 
-        eps_mode:
-        - "hourly_quantile": epsilon per time step (hour/file) using quantile q
-        - "global_quantile": epsilon global over provided dataset subset
-        - "fixed": requires ds.attrs[f"eps_{var}"] or set below manually (not implemented here)
-
-        eps_floor_mode:
-        - "global_min": epsilon(t) := max(epsilon(t), epsilon_global)
-        - "none": no floor
+        Output includes:
+        - b_<var>, a_<var>, r2_<var>, F_<var> : (time,)
+        - eps_<var> : (time,)
+        - n_fit_<var> : (time,)
+        - mask_fit_<var> : (time, range_layer)  (True where points used in OLS)
+        - mask_ze : (time, range_layer)
+        - coords: time, range_layer, depth (depth from top; meters)
+        - attrs: z_top, z_base, dz, threshold settings, eps settings, q, min_points_ols
         """
-        ds = self.ds
+        if not self._is_processed():
+            raise RuntimeError("MRR-Pro data not processed (raprompro missing).")
 
-        # Select layer
+        ds = self.raprompro
+
         if z_base <= z_top:
             raise ValueError("z_base must be greater than z_top (in meters).")
 
+        # --- Select layer ---
         layer = ds.sel({"range": slice(z_top, z_base)})
 
-        # Depth from top (positive downward)
-        z_layer = layer["range"].values.astype(float)
-        d = (
-            z_top - z_layer
-        )  # d=0 at top; negative if z_layer>z_top; depends on ordering
-        # Ensure d increases downward: if heights increase upward, z_layer>z_top => d negative.
-        # Better: define depth as absolute distance from top along vertical axis:
-        d = np.abs(z_layer - z_top)
+        if time_dim not in layer.coords:
+            raise KeyError(f"Missing coord '{time_dim}' in dataset.")
+        if "range" not in layer.coords:
+            raise KeyError("Missing coord 'range' in dataset.")
+        if variable_threshold not in layer:
+            raise KeyError(f"Missing threshold variable '{variable_threshold}' in dataset.")
 
+        # Ensure required variables exist
+        for vname in vars:
+            if vname not in layer:
+                raise KeyError(f"Missing variable '{vname}' in dataset.")
+
+        # Depth from top (positive downward, meters)
+        z_layer = layer["range"].values.astype(float)  # 1D in-layer
+        depth = np.abs(z_layer - float(z_top)).astype(float)  # 1D, >=0
         dz = float(z_base - z_top)
 
+        # --- Threshold mask (common) ---
         Ze = layer[variable_threshold]
-        ze_mask = xr.where(np.isfinite(Ze) & (Ze > threshold_value), True, False)
+        ze_mask = xr.where(np.isfinite(Ze) & (Ze > threshold_value), True, False)  # (time, range)
 
-        out = xr.Dataset(coords={time_dim: layer[time_dim].values})
+        # --- Output dataset with traceability coords ---
+        out = xr.Dataset(
+            coords={
+                time_dim: layer[time_dim].values,
+                "range_layer": layer["range"].values,
+            }
+        )
+        out = out.assign_coords(depth=("range_layer", depth))
+
         out["dz"] = xr.DataArray(dz)
+        out["mask_ze"] = xr.DataArray(
+            ze_mask.values.astype(bool),
+            dims=(time_dim, "range_layer"),
+        )
 
-        # Precompute global eps if requested
+        out.attrs.update(
+            dict(
+                z_top=float(z_top),
+                z_base=float(z_base),
+                dz=float(dz),
+                variable_threshold=str(variable_threshold),
+                threshold_value=float(threshold_value),
+                vars=tuple(vars),
+                eps_mode=str(eps_mode),
+                eps_floor_mode=str(eps_floor_mode),
+                q=float(q),
+                min_points_ols=int(min_points_ols),
+            )
+        )
+
+        # --- Precompute global eps if requested ---
         global_eps: dict[str, float] = {}
         if eps_mode == "global_quantile" or eps_floor_mode == "global_min":
             for vname in vars:
-                vvals = layer[vname].values
-                global_eps[vname] = compute_eps(vvals, q=q)
+                global_eps[vname] = compute_eps(layer[vname].values, q=q)
 
-        # For each time, compute per-variable eps and fit
+        # --- Prepare loop ---
         times = layer[time_dim].values
         ntime = times.size
+        nrange = layer.sizes["range"]
 
-        n_valid = np.zeros(ntime, dtype=int)
-        # n_valid defined by Ze mask only (common across variables), but we can also compute per-var n later if needed.
-        ze_mask_np = ze_mask.values  # shape: (time, height_in_layer)
-        n_valid[:] = np.sum(ze_mask_np, axis=1)
+        ze_mask_np = ze_mask.values.astype(bool)  # (time, range)
 
+        n_valid = np.sum(ze_mask_np, axis=1).astype(int)
         out["n_valid"] = xr.DataArray(n_valid, dims=(time_dim,))
 
+        # --- Fit each variable ---
         for vname in vars:
             b_arr = np.full(ntime, np.nan, dtype=float)
             a_arr = np.full(ntime, np.nan, dtype=float)
             r2_arr = np.full(ntime, np.nan, dtype=float)
             F_arr = np.full(ntime, np.nan, dtype=float)
 
-            V = layer[vname].values  # (time, height)
+            eps_used = np.full(ntime, np.nan, dtype=float)
+            n_fit = np.zeros(ntime, dtype=int)
+            mask_fit = np.zeros((ntime, nrange), dtype=bool)
+
+            V = layer[vname].values.astype(float)  # (time, range)
 
             for it in range(ntime):
+                # quick skip by threshold-only mask count
                 if n_valid[it] < min_points_ols:
                     continue
 
-                mask = ze_mask_np[it, :] & np.isfinite(V[it, :]) & (V[it, :] > 0)
-                if np.sum(mask) < min_points_ols:
+                # final mask used for fit (threshold + finite + >0)
+                mask = ze_mask_np[it, :] & np.isfinite(V[it, :]) & (V[it, :] > 0.0)
+                nmask = int(np.sum(mask))
+                if nmask < min_points_ols:
                     continue
 
                 # epsilon
@@ -2296,7 +2350,7 @@ class MRRProData:
                 elif eps_mode == "global_quantile":
                     eps_t = global_eps.get(vname, np.nan)
                 else:
-                    raise ValueError(f"Unsupported eps_mode={eps_mode}")
+                    raise ValueError(f"Unsupported eps_mode={eps_mode!r}")
 
                 if not np.isfinite(eps_t) or eps_t <= 0:
                     continue
@@ -2304,27 +2358,38 @@ class MRRProData:
                 if eps_floor_mode == "global_min":
                     eps_g = global_eps.get(vname, np.nan)
                     if np.isfinite(eps_g) and eps_g > 0:
-                        eps_t = max(eps_t, eps_g)
+                        eps_t = max(float(eps_t), float(eps_g))
 
-                x = d[mask]
+                x = depth[mask]
                 y = np.log(np.maximum(V[it, mask], eps_t))
 
                 b, a, r2 = ols_slope_intercept_r2(x, y)
-                if not np.isfinite(b) or not np.isfinite(r2):
+                if not (np.isfinite(b) and np.isfinite(a) and np.isfinite(r2)):
                     continue
 
-                b_arr[it] = b
-                a_arr[it] = a
-                r2_arr[it] = r2
+                b_arr[it] = float(b)
+                a_arr[it] = float(a)
+                r2_arr[it] = float(r2)
                 F_arr[it] = float(np.exp(b * dz))
+
+                # traceability
+                mask_fit[it, :] = mask
+                n_fit[it] = nmask
+                eps_used[it] = float(eps_t)
 
             out[f"b_{vname}"] = xr.DataArray(b_arr, dims=(time_dim,))
             out[f"a_{vname}"] = xr.DataArray(a_arr, dims=(time_dim,))
             out[f"r2_{vname}"] = xr.DataArray(r2_arr, dims=(time_dim,))
             out[f"F_{vname}"] = xr.DataArray(F_arr, dims=(time_dim,))
-        return out
 
-    def plot_hexagram_event_in_layer(
+            out[f"eps_{vname}"] = xr.DataArray(eps_used, dims=(time_dim,))
+            out[f"n_fit_{vname}"] = xr.DataArray(n_fit, dims=(time_dim,))
+            out[f"mask_fit_{vname}"] = xr.DataArray(mask_fit, dims=(time_dim, "range_layer"))
+
+        return out
+    
+
+    def rain_process_analyze(
         self,
         *,
         period: tuple[datetime, datetime],
@@ -2335,69 +2400,36 @@ class MRRProData:
         eps_q: float = 0.01,
         rgb_q: float = 0.02,
         vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-        figsize: tuple[float, float] = (10, 10),
-        markersize: float = 35.0,
-        alpha: float = 0.9,
-        use_snapped_colors: bool = True,
-        savefig: bool = False,
-        output_dir=None,
-        dpi: int = 200,
-        **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> xr.Dataset:
         """
-        Plotea el hexagrama (base RGB) y superpone la trayectoria temporal del evento
-        (puntos) para una capa fija [z_top, z_base] y un periodo temporal.
+        Analiza proceso de lluvia en una capa y periodo: OLS (trends) -> RGB -> hex mapping.
 
-        Pipeline:
-        1) compute_layer_trend_ols(...)  -> b_Dm, b_Nw, b_LWC, F_*, r2_*
-        2) build_rgb_from_trends(...)    -> R,G,B en [0,1]
-        3) map_rgb_to_hexagram(...)      -> hex_x, hex_y, hex_area (+ snap_R,G,B opcional)
-        4) plot base hexagram + scatter
-
-        Parameters
-        ----------
-        period :
-            slice o tupla (t0, t1) compatible con xarray sel(time=...).
-            Ejemplos:
-            - slice("2025-03-08T12:00", "2025-03-08T13:00")
-            - (datetime1, datetime2)
-        layer : (z_top, z_base) en metros.
-        k : int
-            Resolución del hexagrama (no se asume).
-        ze_th : float
-            Umbral de Ze (dBZ) para máscara binaria (eco válido).
-        min_points_ols : int
-            Número mínimo de bins válidos en la capa para ajustar OLS.
-        eps_q : float
-            Cuantil para epsilon en el log (compute_layer_trend_ols).
-        rgb_q : float
-            Cuantil para la normalización robusta a RGB (build_rgb_from_trends).
-        use_snapped_colors : bool
-            Si True, colorea con el RGB de la celda asignada (snap); si False, con RGB continuo.
+        Returns
+        -------
+        xr.Dataset con coords time y variables:
+        - b_*, a_*, r2_*, F_*, n_valid, eps_*, n_fit_*, mask_fit_* (de compute_layer_trend_ols)
+        - R, G, B (0..1)
+        - minutes (float)
+        - hex_x, hex_y, hex_area (+ snap_R,G,B si disponible)
         """
-
-        # Imports desde utils (ajusta el path si tu paquete difiere)
-        from mrrpropy.utils import (
-            build_rgb_from_trends,
-            map_rgb_to_hexagram,
-            get_hexagram_assets,
-        )
-
         if not self._is_processed():
-            raise RuntimeError(
-                "El dataset no parece preprocesado (faltan variables clave)."
-            )
+            raise RuntimeError("Dataset not preprocessed / raprompro not available.")
 
+        ds = self.raprompro
         z_top, z_base = layer
         if z_base <= z_top:
             raise ValueError("layer debe cumplir z_base > z_top (metros).")
 
-        # --- seleccionar periodo ---
-        ds_sub = self.ds.sel(time=slice(*period))
+        t0, t1 = period
+        if t0 >= t1:
+            raise ValueError("period debe ser creciente (t0 < t1).")
+
+        # Selección temporal (sólo para validar no vacío y fijar periodo real)
+        ds_sub = ds.sel(time=slice(t0, t1))
         if ds_sub.sizes.get("time", 0) == 0:
             raise ValueError("Selección temporal vacía: revisa period.")
 
-        # --- 1) tendencias en capa (OLS + R²) ---
+        # 1) Tendencias en capa (OLS)
         trends = self.compute_layer_trend_ols(
             z_top=z_top,
             z_base=z_base,
@@ -2408,57 +2440,170 @@ class MRRProData:
             min_points_ols=min_points_ols,
         )
 
-        # --- 2) RGB en [0,1] centrado en 0.5 (a partir de b_*) ---
+        # IMPORTANT: recorta trends al periodo solicitado (compute_layer_trend_ols usa todo el fichero)
+        trends = trends.sel(time=slice(ds_sub["time"].values[0], ds_sub["time"].values[-1]))
+
+        # 2) RGB (convención actual de tu plot: vars_trend en orden (Dm, Nw, LWC) -> (R,G,B) según tu build)
         rgb = build_rgb_from_trends(
             trends,
             vars=(f"b_{vars_trend[0]}", f"b_{vars_trend[1]}", f"b_{vars_trend[2]}"),
             q=rgb_q,
         )
 
-        # --- minutes ---
-        t = rgb["time"].values  # np.datetime64 array
-        t0 = t[0]
-        minutes = (t - t0) / np.timedelta64(1, "m")  # float array en minutos
+        # minutes since start
+        t = rgb["time"].values
+        t00 = t[0]
+        minutes = (t - t00) / np.timedelta64(1, "m")
+        minutes = minutes.astype(float)
 
-        # --- construir assets del hexagrama UNA vez (img + LUT) ---
+        # 3) hex mapping (assets/LUT)
         hex_assets = get_hexagram_assets(k=k)
-
-        # --- 3) proyección al hexagrama (reutiliza LUT, no recalcula generate_rgb_hex) ---
         hex_ds = map_rgb_to_hexagram(rgb, hex_assets=hex_assets)
 
-        # --- 4) plotting (reutiliza img del mismo hex_assets) ---
+        # 4) merge outputs
+        out = xr.Dataset(coords={"time": rgb["time"].values})        
+
+        # trends: añade todo salvo coords “range_layer/depth” si no quieres inflar demasiado
+        # (Yo lo incluyo porque tú querías trazabilidad)
+        for v in trends.data_vars:
+            out[v] = trends[v]
+        for c in trends.coords:
+            if c not in out.coords:
+                out = out.assign_coords({c: trends.coords[c]})
+        out.attrs.update(trends.attrs)
+
+        # RGB
+        out["R"] = rgb["R"]
+        out["G"] = rgb["G"]
+        out["B"] = rgb["B"]
+        out["minutes"] = xr.DataArray(minutes, dims=("time",))        
+
+        # Hex mapping
+        for v in hex_ds.data_vars:
+            out[v] = hex_ds[v]
+
+        # metadata del análisis
+        out.attrs.update(
+            dict(
+                period_start=str(np.datetime_as_string(ds_sub["time"].values[0], unit="s")),
+                period_end=str(np.datetime_as_string(ds_sub["time"].values[-1], unit="s")),
+                z_top=float(z_top),
+                z_base=float(z_base),
+                k=int(k),
+                ze_th=float(ze_th),
+                min_points_ols=int(min_points_ols),
+                eps_q=float(eps_q),
+                rgb_q=float(rgb_q),
+                vars_trend=tuple(vars_trend),
+                rgb_convention=str(f"R={vars_trend[0]}, G={vars_trend[1]}, B={vars_trend[2]}")
+                                   
+            )
+        )
+        out.attrs["rgb_mapping"] = {
+            "R": vars_trend[0],
+            "G": vars_trend[1],
+            "B": vars_trend[2],
+        }
+        out.attrs["strength_definition"] = "min(|RGB-0.5|)/0.5"        
+        return out
+
+
+    def plot_rain_process_in_layer_hexagram(
+        self,
+        *,
+        analysis: xr.Dataset,
+        use_snapped_colors: bool = True,
+        savefig: bool = False,
+        output_dir=None,
+        **kwargs,
+    ) -> tuple[Figure, Path | None]:
+        """
+        SOLO plotting: dibuja el hexagrama base (RGB) y superpone la trayectoria temporal (puntos)
+        usando el resultado precomputado `analysis` (salida de rain_process_analyze).
+
+        Requiere en `analysis`:
+        - hex_x, hex_y (coords en rejilla del hexagrama)
+        - minutes (para colorear por tiempo)
+        - R,G,B (0..1) y opcional snap_R,snap_G,snap_B
+        - attrs: period_start, period_end, z_top, z_base (opcionales pero recomendados)
+
+        Parameters
+        ----------
+        analysis : xr.Dataset
+            Resultado de rain_process_analyze(...)
+        k : int
+            Resolución del hexagrama (debe coincidir con la usada en el análisis para que la LUT cuadre).
+        use_snapped_colors : bool
+            Si True y existen snap_R/G/B, colorea con el color “snapeado” a la celda.
+            Si False, usa RGB continuo.
+        """
+        # ------------------------------------------------------------------
+        # Plot configuration
+        # ------------------------------------------------------------------
+        pcfg = self.plot_cfg
+        figsize = kwargs.get("figsize", pcfg.figsize_multipanel)
+        markersize = kwargs.get("markersize", pcfg.markersize)
+        dpi = kwargs.get("dpi", pcfg.dpi)
+        alpha = kwargs.get("alpha", pcfg.alpha_points)
+
+        # --- checks mínimos ---
+        if analysis is None or not isinstance(analysis, xr.Dataset):
+            raise TypeError("analysis debe ser un xr.Dataset (salida de rain_process_analyze).")
+
+        required = ("hex_x", "hex_y", "minutes", "R", "G", "B")
+        missing = [v for v in required if v not in analysis]
+        if missing:
+            raise KeyError(f"analysis no contiene variables requeridas: {missing}")
+
+        # --- assets (img + LUT) ---        
+        k  = analysis.attrs['k']
+        hex_assets = get_hexagram_assets(k=k)
+        img = hex_assets["img"]
+        ny, nx = img.shape[:2]
+
+        # --- datos ---
+        hx = analysis["hex_x"].values.astype(float)
+        hy = analysis["hex_y"].values.astype(float)
+        minutes = analysis["minutes"].values.astype(float)
+
+        if use_snapped_colors and all(v in analysis for v in ("snap_R", "snap_G", "snap_B")):
+            cols = np.stack(
+                [
+                    analysis["snap_R"].values,
+                    analysis["snap_G"].values,
+                    analysis["snap_B"].values,
+                ],
+                axis=1,
+            ).astype(float)
+        else:
+            cols = np.stack(
+                [analysis["R"].values, analysis["G"].values, analysis["B"].values],
+                axis=1,
+            ).astype(float)
+
+        # --- máscara de validez (evita warnings/errores de matplotlib) ---
+        ok = (
+            np.isfinite(hx)
+            & np.isfinite(hy)
+            & np.isfinite(minutes)
+            & np.isfinite(cols).all(axis=1)
+            & (hx >= 0)
+            & (hy >= 0)
+            & (hx <= (nx - 1))
+            & (hy <= (ny - 1))
+        )
+
+        # --- plot ---
         fig, ax = plt.subplots(figsize=figsize)
+
         ax.imshow(
-            hex_assets["img"],
+            img,
             origin="lower",
             interpolation="nearest",
             alpha=kwargs.get("alpha_hexagram", 0.25),
         )
 
-        hx = hex_ds["hex_x"].values.astype(float)
-        hy = hex_ds["hex_y"].values.astype(float)
-
-        if use_snapped_colors and all(
-            v in hex_ds for v in ("snap_R", "snap_G", "snap_B")
-        ):
-            cols = np.stack(
-                [
-                    hex_ds["snap_R"].values,
-                    hex_ds["snap_G"].values,
-                    hex_ds["snap_B"].values,
-                ],
-                axis=1,
-            )
-        else:
-            cols = np.stack([rgb["R"].values, rgb["G"].values, rgb["B"].values], axis=1)
-
-        ok = (
-            np.isfinite(hx)
-            & np.isfinite(hy)
-            & np.isfinite(cols).all(axis=1)
-            & (hx >= 0)
-            & (hy >= 0)
-        )
+        sc = None
         if np.any(ok):
             sc = ax.scatter(
                 hx[ok],
@@ -2467,200 +2612,120 @@ class MRRProData:
                 c=minutes[ok],
                 alpha=alpha,
                 cmap=kwargs.get("cmap", "viridis"),
-                edgecolors="black",
-                linewidths=0.1,
+                edgecolors=kwargs.get("edgecolors", "black"),
+                linewidths=kwargs.get("linewidths", 0.1),
             )
 
-        # Etiquetado mínimo (sin asumir convención de áreas)
-        t0 = ds_sub["time"].values[0]
-        t1 = ds_sub["time"].values[-1]
-        t0s = np.datetime_as_string(t0, unit="s")
-        t1s = np.datetime_as_string(t1, unit="s")
-        ax.set_title(
-            f"Hexagrama RGB (k={k}) | Capa {z_top:.0f}-{z_base:.0f} m \n {t0s} → {t1s}"
+        # --- etiquetado ---
+        z_top = analysis.attrs.get("z_top", None)
+        z_base = analysis.attrs.get("z_base", None)
+        t0s = analysis.attrs.get("period_start", None)
+        t1s = analysis.attrs.get("period_end", None)
+
+        layer_txt = (
+            f"Capa {float(z_top):.0f}-{float(z_base):.0f} m"
+            if (z_top is not None and z_base is not None)
+            else "Capa (desconocida)"
         )
+        period_txt = f"{t0s} → {t1s}" if (t0s is not None and t1s is not None) else ""
+        rgb_map = analysis.attrs.get("rgb_mapping", None)
+        rgb_txt = ", ".join(f"{k}={v}" for k, v in rgb_map.items())
+        ax.set_title(
+            f"Hexagrama RGB (k={k}) | {rgb_txt}\n"
+            f"Capa {z_top:.0f}-{z_base:.0f} m | {t0s} → {t1s}"
+        )
+        ax.set_title(f"Hexagrama RGB (k={k}) | {layer_txt}\n{period_txt}".rstrip())
+
         ax.set_xlabel("hex_x (índice rejilla)")
         ax.set_ylabel("hex_y (índice rejilla)")
-        ax.set_xlim(-0.5, hex_assets["img"].shape[1] - 0.5)
-        ax.set_ylim(-0.5, hex_assets["img"].shape[0] - 0.5)
+        ax.set_xlim(-0.5, nx - 0.5)
+        ax.set_ylim(-0.5, ny - 0.5)
         ax.grid(False)
 
-        cbar = plt.colorbar(sc, ax=ax)
-        cbar.set_label("Minutes since start")
+        if sc is not None:
+            cbar = plt.colorbar(sc, ax=ax)
+            cbar.set_label("Minutes since start")
 
         fig.tight_layout()
 
+        # --- savefig ---
         filepath = None
         if savefig:
             if output_dir is None:
-                outdir = Path.cwd()
-                filepath = (
-                    outdir
-                    / f"{t0s.replace(':','')}_{t1s.replace(':','')}_hex_{z_top:.0f}-{z_base:.0f}m_k{k}.png"
-                )
+                output_dir = Path.cwd()
             else:
-                filepath = (
-                    Path(output_dir)
-                    / f"{t0s.replace(':','')}_{t1s.replace(':','')}_hex_{z_top:.0f}-{z_base:.0f}m_k{k}.png"
-                )
-            filepath.parent.mkdir(parents=True, exist_ok=True)
+                output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # nombre de fichero estable
+            # preferimos attrs; si no, fallback
+            safe_t0 = (t0s or "t0").replace(":", "").replace("-", "").replace(" ", "_")
+            safe_t1 = (t1s or "t1").replace(":", "").replace("-", "").replace(" ", "_")
+            safe_layer = (
+                f"{float(z_top):.0f}-{float(z_base):.0f}m" if (z_top is not None and z_base is not None) else "layer"
+            )
+
+            filepath = output_dir / f"rain_process_hex_{safe_t0}_{safe_t1}_{safe_layer}_k{k}.png"
             fig.savefig(filepath, dpi=dpi)
 
         return fig, filepath
 
-    def classify_microphysical_process_from_trends(
+
+    def classify_rain_process(
         self,
         *,
-        period,
-        layer: tuple[float, float],
-        k: int | None = None,
-        variable_threshold: str = "Ze",
-        threshold_value: float = -5.0,
-        min_points_ols: int = 10,
-        eps_q: float = 0.01,
-        rgb_q: float = 0.02,
+        analysis: xr.Dataset,
         tol_center: float = 0.05,
         min_strength: float = 0.10,
-        vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-    ):
-        """
-        Clasifica procesos microfísicos a partir de trends (pendientes OLS en una capa)
-        usando reglas tipo (ΔLWC, ΔNw, ΔDm) → proceso.
+    ) -> xr.Dataset:
+                
+        if analysis is None or not isinstance(analysis, xr.Dataset):
+            raise TypeError("analysis debe ser un xr.Dataset (salida de rain_process_analyze).")
+        if "time" not in analysis.coords:
+            raise KeyError("analysis debe tener coord 'time'.")
+        for v in ("R", "G", "B"):
+            if v not in analysis:
+                raise KeyError("analysis debe incluir R,G,B (decisión tomada en rain_process_analyze).")
 
-        Parameters
-        ----------
-        period : slice | (datetime, datetime)
-            Periodo temporal. Si es tupla, se convierte a slice.
-        layer : (z_top, z_base) en metros.
-        k : int | None
-            Si return_hex=True, se usa para mapear RGB al hexagrama.
+        # opcional: si tus reglas están calibradas para un mapping concreto:
+        expected = {"R": "Dm", "G": "Nw", "B": "LWC"}
+        rgb_map = analysis.attrs.get("rgb_mapping", None)        
+        if rgb_map != expected:
+            raise ValueError(f"rgb_mapping={rgb_map} pero este clasificador espera {expected}.")
 
-        min_points_ols : int
-            Mínimo de bins válidos en la capa para ajustar OLS.
-        eps_q : float
-            Cuantil para epsilon en el log (compute_layer_trend_ols).
-        rgb_q : float
-            Cuantil para normalización robusta en build_rgb_from_trends.
-        tol_center : float
-            Tolerancia alrededor de 0.5 para considerar “0” (neutro).
-        min_strength : float
-            Fuerza mínima para no etiquetar como 'steady_or_weak'.
-        vars_trend : (Dm, Nw, LWC)
-            Variables a usar en trends; convención RGB= (LWC,Nw,Dm) se deriva de aquí.
-        return_rgb : bool
-            Si True, devuelve también el Dataset RGB.
-        return_hex : bool
-            Si True, devuelve también el Dataset de mapeo al hexagrama (requiere k).
-
-        Returns
-        -------
-        out : xr.Dataset
-            Variables:
-            - proc_label (str)
-            - proc_score (0..1)
-            - sign_R, sign_G, sign_B (-1,0,+1)
-            - strength (0..1)
-            coords: time
-            Opcional:
-            - (si return_rgb) R,G,B
-            - (si return_hex) hex_x, hex_y, hex_area, snap_R,G,B (según tu map)
-        """
-
-        if not self._is_processed():
-            raise RuntimeError(
-                "El dataset no parece preprocesado (faltan variables clave)."
-            )
-
-        z_top, z_base = layer
-        if z_base <= z_top:
-            raise ValueError("layer debe cumplir z_base > z_top (metros).")
-
-        # --- normalizar period a slice ---
-        if isinstance(period, tuple) and len(period) == 2:
-            t0, t1 = period
-            if t0 >= t1:
-                raise ValueError("period must satisfy start < end.")
-            period = slice(t0, t1)
-        elif not isinstance(period, slice):
-            raise TypeError("period must be slice or (start,end) tuple.")
-
-        ds_sub = self.ds.sel(time=period)
-        if ds_sub.sizes.get("time", 0) == 0:
-            raise ValueError("Selección temporal vacía: revisa period.")
-
-        tmp = self.__class__(path=self.path, ds=ds_sub)
-
-        # --- 1) trends en capa ---
-        trends = tmp.compute_layer_trend_ols(
-            z_top=z_top,
-            z_base=z_base,
-            variable_threshold=variable_threshold,
-            threshold_value=threshold_value,
-            vars=vars_trend,
-            q=eps_q,
-            min_points_ols=min_points_ols,
-        )
-
-        # --- 2) RGB desde b_*  (convención: R=LWC, G=Nw, B=Dm) ---
-        # OJO: vars_trend está en orden (Dm,Nw,LWC); aquí reordenamos a (LWC,Nw,Dm).
-        b_dm, b_nw, b_lwc = (
-            f"b_{vars_trend[0]}",
-            f"b_{vars_trend[1]}",
-            f"b_{vars_trend[2]}",
-        )
-        rgb = build_rgb_from_trends(
-            trends,
-            vars=(b_lwc, b_nw, b_dm),  # R,G,B
-            q=rgb_q,
-        )
-
-        R = rgb["R"].values
-        G = rgb["G"].values
-        B = rgb["B"].values
+        R = analysis["R"].values.astype(float)
+        G = analysis["G"].values.astype(float)
+        B = analysis["B"].values.astype(float)
 
         ok = np.isfinite(R) & np.isfinite(G) & np.isfinite(B)
 
-        sR = np.full(R.shape, 0, dtype=int)
-        sG = np.full(G.shape, 0, dtype=int)
-        sB = np.full(B.shape, 0, dtype=int)
-        sR[ok] = _sign_from_center(R[ok])
-        sG[ok] = _sign_from_center(G[ok])
-        sB[ok] = _sign_from_center(B[ok])
+        sR = np.zeros(R.shape, dtype=int)
+        sG = np.zeros(G.shape, dtype=int)
+        sB = np.zeros(B.shape, dtype=int)
+        if np.any(ok):
+            sR[ok] = _sign_from_center(R[ok])
+            sG[ok] = _sign_from_center(G[ok])
+            sB[ok] = _sign_from_center(B[ok])
 
-        # fuerza global: mínimo de las tres (si una es débil, el proceso es débil)
         strg = np.zeros(R.shape, dtype=float)
         if np.any(ok):
-            strg[ok] = np.minimum.reduce(
-                [_strength(R[ok]), _strength(G[ok]), _strength(B[ok])]
-            )
+            strg[ok] = np.minimum.reduce([_strength(R[ok]), _strength(G[ok]), _strength(B[ok])])
 
         label = np.full(R.shape, "unknown", dtype=object)
         score = np.zeros(R.shape, dtype=float)
 
         def match(wR, wG, wB):
             m = ok.copy()
-            m &= sR == wR
-            m &= sG == wG
-            m &= sB == wB
+            m &= (sR == wR) & (sG == wG) & (sB == wB)
             return m
 
-        # --- reglas (según vuestra tabla) ---
-        # Break-up: R~0, G+, B-
+        # Reglas (ASUMEN la convención RGB ya fijada en analysis.attrs["rgb_convention"])
         m_breakup = match(0, +1, -1)
+        m_coal    = match(0, -1, +1)
+        m_evap    = match(-1, -1, -1)
+        m_auto    = match(+1, +1, -1)
+        m_act     = match(+1, +1, +1)
 
-        # Coalescence: R~0, G-, B+
-        m_coal = match(0, -1, +1)
-
-        # Evaporation: R-, G-, B-
-        m_evap = match(-1, -1, -1)
-
-        # Auto-conversion (hipótesis): R+, G+, B-
-        m_auto = match(+1, +1, -1)
-
-        # Activation (hipótesis): R+, G+, B+
-        m_act = match(+1, +1, +1)
-
-        # prioridad (decisión técnica para resolver solapes; ajustable)
         for m, name in [
             (m_evap, "evaporation"),
             (m_breakup, "breakup"),
@@ -2672,251 +2737,267 @@ class MRRProData:
             label[take] = name
 
         score[ok] = strg[ok]
-
-        # filtrar casos débiles o casi neutros
         weak = ok & (strg < min_strength)
         label[weak] = "steady_or_weak"
 
-        out = xr.Dataset(coords={"time": rgb["time"].values})
-        out["proc_label"] = xr.DataArray(label, dims=("time",))
-        out["proc_score"] = xr.DataArray(score, dims=("time",))
+        out = xr.Dataset(coords={"time": analysis["time"].values})
+        out["proc_label"] = xr.DataArray(label, dims=("time",))        
         out["sign_R"] = xr.DataArray(sR, dims=("time",))
         out["sign_G"] = xr.DataArray(sG, dims=("time",))
         out["sign_B"] = xr.DataArray(sB, dims=("time",))
         out["strength"] = xr.DataArray(strg, dims=("time",))
-        out["R"] = rgb["R"]
-        out["G"] = rgb["G"]
-        out["B"] = rgb["B"]
 
-        if k is None or not isinstance(k, int) or k <= 0:
-            raise ValueError("return_hex=True requiere k entero positivo.")
+        # Copia RGB (para plots)
+        out["R"] = analysis["R"]
+        out["G"] = analysis["G"]
+        out["B"] = analysis["B"]
 
-        hex_assets = get_hexagram_assets(k=k)
-        hex_ds = map_rgb_to_hexagram(rgb, hex_assets=hex_assets)
+        # Copia hex/minutes si existen (para plots multipanel)
+        for v in ("hex_x", "hex_y", "hex_area", "minutes", "snap_R", "snap_G", "snap_B"):
+            if v in analysis:
+                out[v] = analysis[v]
 
-        for v in hex_ds.data_vars:
-            out[v] = hex_ds[v]
-
-        # metadata útil
-        out.attrs["layer_z_top_m"] = float(z_top)
-        out.attrs["layer_z_base_m"] = float(z_base)
-        out.attrs[f"{variable_threshold}_threshold_dbz"] = float(threshold_value)
+        # Metadata (decisiones ya tomadas)
         out.attrs["tol_center"] = float(tol_center)
         out.attrs["min_strength"] = float(min_strength)
-        out.attrs["rgb_q"] = float(rgb_q)
+        for key in ("rgb_convention", "period_start", "period_end", "z_top", "z_base", "k", "rgb_q", "eps_q", "ze_th", "min_points_ols"):
+            if key in analysis.attrs:
+                out.attrs[key] = analysis.attrs[key]
 
         return out
 
+
     def plot_microphysics_summary_multipanel(
-        mrr,
+        self,
         *,
-        period: tuple[datetime, datetime] | slice,
-        layer: tuple[float, float],
-        k: int = 11,
-        variable_threshold: str = "Ze",
-        threshold_value: float = -5.0,
-        min_points_ols: int = 10,
-        eps_q: float = 0.01,
-        rgb_q: float = 0.02,
-        tol_center: float = 0.05,
-        min_strength: float = 0.10,
-        alpha_hexagram: float = 0.25,
-        markersize: float = 40.0,
-        line_width: float = 0.8,
+        analysis: xr.Dataset,
+        classified: xr.Dataset,
         show_path_line: bool = True,
         savefig: bool = False,
-        output_dir: Path | None = None,
-        figsize: tuple[float, float] = (14, 10),
-    ) -> tuple[Figure, str]:
+        output_dir: "Path | None" = None,
+        **kwargs,
+    ) -> "tuple[Figure, Path | None]":
         """
-        Figura multipanel (a)-(d) para interpretar classify_microphysical_process_from_trends.
+        Plot multipanel (PLOT-ONLY) coherente con el pipeline:
 
-        Requisitos:
-        - mrr.classify_microphysical_process_from_trends(..., return_hex=True, return_rgb=True)
-        - mrrpropy.utils.get_hexagram_assets(k)
+            analysis   = rain_process_analyze(...)
+            classified = classify_rain_process(analysis=analysis, ...)
 
-        Devuelve: (fig, axes, out_ds)
+        Paneles:
+        (a) Hexagrama + trayectoria temporal (color = minutes)
+        (b) Timeline de proc_label (color = strength)
+        (c) Signos (sign_R/G/B) vs tiempo
+        (d) Strength vs tiempo
+
+        Todas las decisiones científicas (RGB, k, reglas, etc.)
+        deben estar ya contenidas en `analysis` y `classified`.
         """
 
-        # imports locales para no forzar dependencias si no se usa
+        # ------------------------------------------------------------------
+        # Plot configuration
+        # ------------------------------------------------------------------
+        pcfg = self.plot_cfg
+        cmap = kwargs.get("cmap", pcfg.cmap)
+        figsize = kwargs.get("figsize", pcfg.figsize_multipanel)
+        alpha_hexagram = kwargs.get("alpha_hexagram", pcfg.alpha_hexagram)
+        markersize = kwargs.get("markersize", pcfg.markersize)
+        line_width = kwargs.get("line_width", pcfg.linewidth)
+        dpi = kwargs.get("dpi", pcfg.dpi)
 
-        # 1) Clasificación + hex + rgb
-        out = mrr.classify_microphysical_process_from_trends(
-            period=period,
-            layer=layer,
-            k=k,
-            variable_threshold=variable_threshold,
-            threshold_value=threshold_value,
-            min_points_ols=min_points_ols,
-            eps_q=eps_q,
-            rgb_q=rgb_q,
-            tol_center=tol_center,
-            min_strength=min_strength,
-        )
+        # ------------------------------------------------------------------
+        # Sanity checks
+        # ------------------------------------------------------------------
+        if not isinstance(analysis, xr.Dataset):
+            raise TypeError("analysis debe ser un xr.Dataset (salida de rain_process_analyze).")
+        if not isinstance(classified, xr.Dataset):
+            raise TypeError("classified debe ser un xr.Dataset (salida de classify_rain_process).")
 
-        t = out["time"].values
+        for ds, name in [(analysis, "analysis"), (classified, "classified")]:
+            if "time" not in ds.coords:
+                raise KeyError(f"{name} debe tener coord 'time'.")
+
+        for v in ("hex_x", "hex_y", "minutes"):
+            if v not in analysis:
+                raise KeyError(f"analysis debe contener '{v}'.")
+
+        for v in ("proc_label", "sign_R", "sign_G", "sign_B", "strength"):
+            if v not in classified:
+                raise KeyError(f"classified debe contener '{v}'.")
+
+        # k debe venir del análisis
+        k = analysis.attrs.get("k", None)
+        if k is None:
+            raise KeyError("analysis.attrs['k'] no existe (necesario para dibujar el hexagrama).")
+
+        # RGB mapping solo para trazabilidad
+        rgb_map = analysis.attrs.get("rgb_mapping", None)
+        rgb_txt = ""
+        if rgb_map is not None:
+            rgb_txt = " | " + ", ".join(f"{c}={v}" for c, v in rgb_map.items())
+
+        # ------------------------------------------------------------------
+        # Align datasets in time
+        # ------------------------------------------------------------------
+        analysis_a, classified_a = xr.align(analysis, classified, join="inner")
+        t = analysis_a["time"].values
         if t.size == 0:
-            raise ValueError("Salida vacía: revisa period/layer/umbrales.")
+            raise ValueError("analysis y classified no tienen intersección temporal.")
 
-        # minutos desde inicio
-        minutes = (t - t[0]) / np.timedelta64(1, "m")
-        minutes = np.asarray(minutes, dtype=float)
-
-        # hex coords
-        hx = out["hex_x"].values.astype(float)
-        hy = out["hex_y"].values.astype(float)
-        ok_xy = np.isfinite(hx) & np.isfinite(hy) & (hx >= 0) & (hy >= 0)
-
-        # 2) Preparar figura
+        # ------------------------------------------------------------------
+        # Figure layout
+        # ------------------------------------------------------------------
         fig = plt.figure(figsize=figsize)
         gs = fig.add_gridspec(4, 1, height_ratios=[2.2, 1.0, 1.2, 1.0], hspace=0.25)
 
         ax_hex = fig.add_subplot(gs[0, 0])
-        ax_tl = fig.add_subplot(gs[1, 0], sharex=None)
-        ax_sgn = fig.add_subplot(gs[2, 0], sharex=None)
-        ax_str = fig.add_subplot(gs[3, 0], sharex=None)
+        ax_tl  = fig.add_subplot(gs[1, 0])
+        ax_sgn = fig.add_subplot(gs[2, 0])
+        ax_str = fig.add_subplot(gs[3, 0])
 
-        # --- (a) Hexagrama + trayectoria coloreada por tiempo (min)
+        # ------------------------------------------------------------------
+        # (a) Hexagram + trajectory
+        # ------------------------------------------------------------------
         assets = get_hexagram_assets(k=k)
         img = assets["img"]
 
         ax_hex.imshow(
-            img, origin="lower", interpolation="nearest", alpha=alpha_hexagram
+            img,
+            origin="lower",
+            interpolation="nearest",
+            alpha=alpha_hexagram,
         )
 
-        ok = ok_xy & np.isfinite(minutes)
+        hx = analysis_a["hex_x"].values.astype(float)
+        hy = analysis_a["hex_y"].values.astype(float)
+        minutes = analysis_a["minutes"].values.astype(float)
+
+        ok = (
+            np.isfinite(hx)
+            & np.isfinite(hy)
+            & np.isfinite(minutes)
+            & (hx >= 0)
+            & (hy >= 0)
+        )
+
         if np.any(ok):
             sc = ax_hex.scatter(
                 hx[ok],
                 hy[ok],
                 c=minutes[ok],
-                cmap="viridis",
+                cmap=cmap,
                 s=markersize,
                 edgecolors="black",
                 linewidths=0.1,
-                alpha=0.95,
             )
             cbar = fig.colorbar(sc, ax=ax_hex, fraction=0.03, pad=0.01)
             cbar.set_label("Minutes since start")
 
             if show_path_line:
-                # ordenar por tiempo para que la línea sea temporal
                 idx = np.argsort(minutes[ok])
                 ax_hex.plot(
-                    hx[ok][idx], hy[ok][idx], color="black", lw=line_width, alpha=0.4
+                    hx[ok][idx],
+                    hy[ok][idx],
+                    color="black",
+                    lw=line_width,
+                    alpha=0.4,
                 )
 
-        ax_hex.set_title(
-            f"(a) Hexagram trajectory | layer {layer[0]:.0f}-{layer[1]:.0f} m | k={k}"
-        )
-        ax_hex.set_xlabel("hex_x (grid index)")
-        ax_hex.set_ylabel("hex_y (grid index)")
+        layer_txt = ""
+        if "z_top" in analysis_a.attrs and "z_base" in analysis_a.attrs:
+            layer_txt = f" | layer {analysis_a.attrs['z_top']:.0f}-{analysis_a.attrs['z_base']:.0f} m"
+
+        ax_hex.set_title(f"(a) Hexagram trajectory | k={k}{layer_txt}{rgb_txt}")
+        ax_hex.set_xlabel("hex_x")
+        ax_hex.set_ylabel("hex_y")
         ax_hex.set_xlim(-0.5, img.shape[1] - 0.5)
         ax_hex.set_ylim(-0.5, img.shape[0] - 0.5)
         ax_hex.grid(False)
 
-        # --- (b) Timeline proc_label (color=proc_score)
-        df = out[["proc_label", "proc_score"]].to_dataframe().reset_index()
+        # ------------------------------------------------------------------
+        # (b) Process timeline
+        # ------------------------------------------------------------------
+        df = classified_a[["proc_label", "strength"]].to_dataframe().reset_index()
         cat = pd.Categorical(df["proc_label"])
         y = cat.codes.astype(int)
-
-        # Si hay -1 (NaN en categorical), lo movemos a una fila extra "unknown"
-        # (normalmente no debería ocurrir si proc_label siempre es string)
-        if (y < 0).any():
-            y[y < 0] = len(cat.categories)
-
-        t_py = df["time"].to_numpy()
-        score = df["proc_score"].to_numpy(dtype=float)
+        y[y < 0] = len(cat.categories)
 
         sc2 = ax_tl.scatter(
-            t_py,
+            df["time"].to_numpy(),
             y,
-            c=score,
-            cmap="viridis",
+            c=df["strength"].to_numpy(),
+            cmap=cmap,
             s=30,
             vmin=0,
             vmax=1,
-            edgecolors="none",
         )
-        ax_tl.set_title("(b) Process timeline (color = proc_score)")
-        ax_tl.set_xlabel("Time")
+
+        ax_tl.set_title("(b) Process timeline (color = strength)")
         ax_tl.set_ylabel("Process")
-
-        # etiquetas Y
-        ylabels = list(cat.categories)
-        if (cat.codes < 0).any():
-            ylabels += ["unknown"]
-
-        ax_tl.set_yticks(range(len(ylabels)))
-        ax_tl.set_yticklabels(ylabels)
-
-        cbar2 = fig.colorbar(sc2, ax=ax_tl, fraction=0.03, pad=0.01)
-        cbar2.set_label("proc_score")
-
-        # Formato de fechas en (b)
+        ax_tl.set_yticks(range(len(cat.categories)))
+        ax_tl.set_yticklabels(list(cat.categories))
         ax_tl.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-        ax_tl.tick_params(axis="x", rotation=0)
 
-        # --- (c) Signos (R,G,B) vs tiempo
+        fig.colorbar(sc2, ax=ax_tl, fraction=0.03, pad=0.01)
+
+        # ------------------------------------------------------------------
+        # (c) Signs vs time
+        # ------------------------------------------------------------------
         tnum = mdates.date2num(pd.to_datetime(t).to_pydatetime())
 
-        def _plot_sign(ax, s, name):
+        def _plot_sign(ax, s, label):
             ax.step(tnum, s, where="mid")
-            ax.axhline(0, color="k", lw=0.6, alpha=0.7)
+            ax.axhline(0, color="k", lw=0.6)
             ax.set_yticks([-1, 0, 1])
             ax.set_yticklabels(["−", "0", "+"])
-            ax.set_ylabel(name)
+            ax.set_ylabel(label)
 
-        sR = out["sign_R"].values.astype(float)
-        sG = out["sign_G"].values.astype(float)
-        sB = out["sign_B"].values.astype(float)
+        _plot_sign(ax_sgn, classified_a["sign_R"].values, "sign_R")
+        ax_sgn.step(tnum, classified_a["sign_G"].values + 0.05, where="mid")
+        ax_sgn.step(tnum, classified_a["sign_B"].values - 0.05, where="mid")
 
-        _plot_sign(ax_sgn, sR, "sign_R (ΔLWC)")
-        ax_sgn.step(tnum, sG + 0.05, where="mid")  # pequeño offset para que no se pisen
-        ax_sgn.step(tnum, sB - 0.05, where="mid")
-
-        # leyenda mínima para los offsets
         ax_sgn.legend(
-            ["sign_R", "sign_G (offset +0.05)", "sign_B (offset -0.05)"],
-            loc="upper right",
+            ["sign_R", "sign_G (+0.05)", "sign_B (-0.05)"],
             frameon=False,
+            loc="upper right",
         )
-        ax_sgn.set_title("(c) Signs vs time (derived from RGB centered at 0.5)")
-        ax_sgn.xaxis_date()
+        ax_sgn.set_title("(c) Signs vs time")
         ax_sgn.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
 
-        # --- (d) Strength vs tiempo
-        strength = out["strength"].values.astype(float)
+        # ------------------------------------------------------------------
+        # (d) Strength vs time
+        # ------------------------------------------------------------------
+        strength = classified_a["strength"].values
         ax_str.plot(tnum, strength, lw=2)
-        ax_str.axhline(min_strength, ls="--", lw=1.0, alpha=0.8)
-        ax_str.set_title("(d) Strength(t) and min_strength threshold")
-        ax_str.set_ylabel("strength (0..1)")
+
+        thr = classified_a.attrs.get("min_strength", None)
+        if thr is not None:
+            ax_str.axhline(float(thr), ls="--", lw=1)
+
+        ax_str.set_title("(d) Strength")
+        ax_str.set_ylabel("strength")
         ax_str.set_xlabel("Time")
-        ax_str.xaxis_date()
         ax_str.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
 
-        # Alinear límites temporales en (c) y (d)
         ax_sgn.set_xlim(tnum.min(), tnum.max())
         ax_str.set_xlim(tnum.min(), tnum.max())
 
         fig.tight_layout()
 
+        # ------------------------------------------------------------------
+        # Save
+        # ------------------------------------------------------------------
         filepath = None
         if savefig:
-            if output_dir is None:
-                outdir = Path.cwd()
-                t0s = np.datetime_as_string(t[0], unit="s").replace(":", "")
-                t1s = np.datetime_as_string(t[-1], unit="s").replace(":", "")
-                filepath = (
-                    outdir
-                    / f"{t0s}_{t1s}_microphysics_summary_layer_{layer[0]:.0f}-{layer[1]:.0f}m_k{k}.png"
-                )
-            else:
-                filepath = (
-                    Path(output_dir)
-                    / f"{t0s}_{t1s}_microphysics_summary_layer_{layer[0]:.0f}-{layer[1]:.0f}m_k{k}.png"
-                )
-            filepath.parent.mkdir(parents=True, exist_ok=True)
-            fig.savefig(filepath, dpi=200)
+            outdir = Path.cwd() if output_dir is None else Path(output_dir)
+            outdir.mkdir(parents=True, exist_ok=True)
 
-        return fig, out
+            t0s = analysis_a.attrs.get("period_start", "").replace(":", "")
+            t1s = analysis_a.attrs.get("period_end", "").replace(":", "")
+            layer_tag = "layer"
+            if "z_top" in analysis_a.attrs and "z_base" in analysis_a.attrs:
+                layer_tag = f"{analysis_a.attrs['z_top']:.0f}-{analysis_a.attrs['z_base']:.0f}m"
+
+            filepath = outdir / f"{t0s}_{t1s}_microphysics_summary_{layer_tag}_k{k}.png"
+            fig.savefig(filepath, dpi=dpi)
+
+        return fig, filepath
