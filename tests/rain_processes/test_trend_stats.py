@@ -1,8 +1,8 @@
-import numpy as np
+﻿import numpy as np
 import pytest
 import xarray as xr
 
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.analysis import rain_processes_classification as rain_classification
 from mrrpropy.utils import compute_monotonic_trend
 
 
@@ -121,7 +121,7 @@ def test_classify_rain_process_uses_tau_signatures():
     analysis["trend_p_Nw"] = xr.DataArray(np.array([0.01, 0.01]), dims=("time",))
     analysis["trend_p_LWC"] = xr.DataArray(np.array([0.01, 0.01]), dims=("time",))
 
-    classified = process_analysis.classify_rain_process(
+    classified = rain_classification.classify_rain_process(
         None,
         analysis=analysis,
         min_tau_strength=0.1,
@@ -160,7 +160,7 @@ def test_classify_rain_process_recognizes_growth_depletion_gain_and_loss():
     }.items():
         analysis[name] = xr.DataArray(values, dims=("time",))
 
-    classified = process_analysis.classify_rain_process(
+    classified = rain_classification.classify_rain_process(
         None,
         analysis=analysis,
         min_tau_strength=0.1,
@@ -218,7 +218,7 @@ def test_classify_rain_process_filters_weak_tau():
     analysis["trend_p_Nw"] = xr.DataArray(np.array([0.4]), dims=("time",))
     analysis["trend_p_LWC"] = xr.DataArray(np.array([0.4]), dims=("time",))
 
-    classified = process_analysis.classify_rain_process(
+    classified = rain_classification.classify_rain_process(
         None,
         analysis=analysis,
         min_tau_strength=0.1,
@@ -226,3 +226,4 @@ def test_classify_rain_process_filters_weak_tau():
     )
 
     assert classified["proc_label"].values[0] == "steady_or_weak"
+

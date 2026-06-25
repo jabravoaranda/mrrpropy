@@ -86,7 +86,7 @@ The test suite is organized into:
 
 - fast checks for import and basic data access,
 - integration checks for end-to-end workflow behavior,
-- slow plotting regressions that write figures under `tests/figures/`,
+- slow plotting regressions that write figures under `tests/data/PRODUCTS/`,
 - generated NetCDF and other non-figure test outputs under `tests/generated/`.
 
 Bundled NetCDF files under `tests/data/` should stay minimal. The repository keeps

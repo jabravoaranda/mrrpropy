@@ -27,7 +27,7 @@ versioning for published package releases.
 - Public Doppler/fall velocity outputs now use the negative-downward convention:
   `W`, `spe_3D.speed`, spectral plots, and spectral process features expose
   falling hydrometeors as negative velocity.
-- `MRRProData.plot_spectrogram(spectrum_var="spe_3D")` converts legacy
+- `mrr.plot.spectrogram(spectrum_var="spe_3D")` converts legacy
   positive-downward processed spectra at the plotting boundary when loaded
   products do not declare the new convention.
 - The microphysical profile example now distinguishes `LWC_all` and `LWC` with

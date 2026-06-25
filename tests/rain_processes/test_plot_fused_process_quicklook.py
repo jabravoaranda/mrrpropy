@@ -7,17 +7,16 @@ from matplotlib.figure import Figure
 import pandas as pd
 import pytest
 
-from mrrpropy.plotting.processes import plot_fused_process_quicklook
-
 from tests.rain_processes.test_process_scan_plots import (
     MIN_TAU_STRENGTH,
     WINDOW_STEP_M,
     WINDOW_THICKNESS_M,
-    _scan_artifact_dir,
 )
 
 
 matplotlib.use("Agg")
+
+pytestmark = [pytest.mark.slow]
 
 QUICKLOOK_PROCESSES = [
     "breakup",
@@ -31,8 +30,8 @@ QUICKLOOK_PROCESSES = [
 
 
 @pytest.fixture(scope="session")
-def scan_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
-    return raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+def scan_df(raprompro_mrr) -> pd.DataFrame:
+    return raprompro_mrr.build_sliding_process_dataframe(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=WINDOW_THICKNESS_M,
@@ -95,13 +94,15 @@ def fused_df(scan_df) -> pd.DataFrame:
     return _make_fused_df_from_scan_snapshot(scan_df)
 
 
-def test_plot_fused_process_quicklook_savefig(scan_df, fused_df, artifact_dir: Path):
+def test_plot_fused_process_quicklook_savefig(
+    raprompro_mrr, scan_df, fused_df, product_dir: Path
+):
     if fused_df.empty:
         pytest.skip("No fused events available for quicklook savefig test.")
 
-    output_dir = _scan_artifact_dir(artifact_dir)
+    output_dir = product_dir
 
-    fig, path = plot_fused_process_quicklook(
+    fig, path = raprompro_mrr.plot.rain.fused_quicklook(
         scan_df,
         fused_df,
         processes=QUICKLOOK_PROCESSES,
@@ -118,26 +119,30 @@ def test_plot_fused_process_quicklook_savefig(scan_df, fused_df, artifact_dir: P
     plt.close(fig)
 
 
-def test_plot_fused_process_quicklook_returns_none_path_by_default(scan_df, fused_df):
-    fig, path = plot_fused_process_quicklook(scan_df, fused_df)
+def test_plot_fused_process_quicklook_returns_none_path_by_default(
+    raprompro_mrr, scan_df, fused_df
+):
+    fig, path = raprompro_mrr.plot.rain.fused_quicklook(scan_df, fused_df)
     assert isinstance(fig, Figure)
     assert path is None
     plt.close(fig)
 
 
-def test_plot_fused_process_quicklook_processes_filter(scan_df, fused_df):
+def test_plot_fused_process_quicklook_processes_filter(
+    raprompro_mrr, scan_df, fused_df
+):
     if fused_df.empty:
         pytest.skip("No fused events available for filter test.")
 
     first_label = str(pd.unique(fused_df["proc_label_fused"].astype(str))[0])
 
-    fig_keep, _ = plot_fused_process_quicklook(
+    fig_keep, _ = raprompro_mrr.plot.rain.fused_quicklook(
         scan_df, fused_df, processes=[first_label]
     )
     assert len(fig_keep.axes[0].patches) >= 1
     plt.close(fig_keep)
 
-    fig_drop, _ = plot_fused_process_quicklook(
+    fig_drop, _ = raprompro_mrr.plot.rain.fused_quicklook(
         scan_df, fused_df, processes=["__no_such_process__"]
     )
     assert len(fig_drop.axes[0].patches) == 0

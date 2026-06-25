@@ -54,7 +54,7 @@
         <h2>RAW diagnostics</h2>
         <div class="example-grid">
           <article class="plot-card">
-            <h3><code>MRRProData.quicklook(source="raw")</code></h3>
+            <h3><code>MRRProData.plot.quicklook(source="raw")</code></h3>
             <p>Time-height quicklook of a RAW two-dimensional field.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only quicklook-raw</code></pre>
             <figure>
@@ -63,7 +63,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_spectrum()</code></h3>
+            <h3><code>MRRProData.plot.spectrum()</code></h3>
             <p>Single-gate Doppler spectrum for one time and range.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-spectrum</code></pre>
             <figure>
@@ -72,7 +72,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_spectra_by_range()</code></h3>
+            <h3><code>MRRProData.plot.spectra_by_range()</code></h3>
             <p>Several Doppler spectra at one time, overlaid by range.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-spectra-by-range</code></pre>
             <figure>
@@ -81,7 +81,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_spectrogram(spectrum_var="spectrum_raw")</code></h3>
+            <h3><code>MRRProData.plot.spectrogram(spectrum_var="spectrum_raw")</code></h3>
             <p>Range-by-Doppler spectrogram from the RAW spectrum.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-spectrogram-raw</code></pre>
             <figure>
@@ -95,7 +95,7 @@
         <h2>RaProMPro products</h2>
         <div class="example-grid">
           <article class="plot-card">
-            <h3><code>MRRProData.quicklook(source="raprompro")</code></h3>
+            <h3><code>MRRProData.plot.quicklook(source="raprompro")</code></h3>
             <p>Time-height quicklook of a processed RaProMPro field.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only quicklook-raprompro</code></pre>
             <figure>
@@ -104,7 +104,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_spectrogram(spectrum_var="spe_3D")</code></h3>
+            <h3><code>MRRProData.plot.spectrogram(spectrum_var="spe_3D")</code></h3>
             <p>Range-by-Doppler spectrogram from the dealiased processed spectra.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-spectrogram-raprompro</code></pre>
             <figure>
@@ -113,7 +113,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_DSDgram()</code></h3>
+            <h3><code>MRRProData.plot.dsdgram()</code></h3>
             <p>Drop-size distribution as a range-by-drop-size image at one time.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-dsdgram</code></pre>
             <figure>
@@ -122,7 +122,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_DSD_by_range()</code></h3>
+            <h3><code>MRRProData.plot.dsd_by_range()</code></h3>
             <p>Drop-size distribution curves at selected ranges.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-dsd-by-range</code></pre>
             <figure>
@@ -131,7 +131,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_microphysical_properties_profiles()</code></h3>
+            <h3><code>MRRProData.plot.microphysical_profiles()</code></h3>
             <p>Vertical profiles of processed microphysical variables at one time.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-microphysical-profiles</code></pre>
             <figure>
@@ -145,7 +145,7 @@
         <h2>Rain-process layers</h2>
         <div class="example-grid">
           <article class="plot-card">
-            <h3><code>MRRProData.plot_rain_process_in_layer_2D()</code></h3>
+            <h3><code>MRRProData.plot.rain.layer_2d()</code></h3>
             <p>Layer event scatter of two microphysical variables, colored by a third.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-rain-process-2d</code></pre>
             <figure>
@@ -154,7 +154,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_event_scatter()</code></h3>
+            <h3><code>MRRProData.plot.rain.event_scatter()</code></h3>
             <p>Event-level scatter for a selected time window and height layer.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-event-scatter</code></pre>
             <figure>
@@ -163,7 +163,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_region_scatter()</code></h3>
+            <h3><code>MRRProData.plot.rain.region_scatter()</code></h3>
             <p>Scatter filtered to selected classified process regions.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-region-scatter</code></pre>
             <figure>
@@ -172,7 +172,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_process_scatter()</code></h3>
+            <h3><code>MRRProData.plot.rain.process_scatter()</code></h3>
             <p>Scatter for one representative classified process label.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-process-scatter</code></pre>
             <figure>
@@ -181,7 +181,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_event_vertical_percent_profiles()</code></h3>
+            <h3><code>MRRProData.plot.rain.event_vertical_profiles()</code></h3>
             <p>Relative vertical profiles through the selected rain event.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-event-vertical-profiles</code></pre>
             <figure>
@@ -190,7 +190,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_process_vertical_percent_profiles()</code></h3>
+            <h3><code>MRRProData.plot.rain.process_vertical_profiles()</code></h3>
             <p>Relative vertical profiles filtered by one process label.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-process-vertical-profiles</code></pre>
             <figure>
@@ -199,7 +199,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_rain_process_in_layer_hexagram()</code></h3>
+            <h3><code>MRRProData.plot.rain.layer_hexagram()</code></h3>
             <p>Layer trend samples projected on the RGB process hexagram.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-layer-hexagram</code></pre>
             <figure>
@@ -208,7 +208,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_processes_evolution()</code></h3>
+            <h3><code>MRRProData.plot.rain.evolution()</code></h3>
             <p>Multipanel summary of process classification evolution through time.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-processes-evolution</code></pre>
             <figure>
@@ -217,7 +217,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_classified_processes_on_hexagram()</code></h3>
+            <h3><code>MRRProData.plot.rain.classified_hexagram()</code></h3>
             <p>Classified process samples over the RGB hexagram background.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-classified-hexagram</code></pre>
             <figure>
@@ -231,7 +231,7 @@
         <h2>Column and hexagram diagnostics</h2>
         <div class="example-grid">
           <article class="plot-card">
-            <h3><code>MRRProData.plot_column_process_scan()</code></h3>
+            <h3><code>MRRProData.plot.rain.column_scan()</code></h3>
             <p>Column scan of rain-process labels across time and height windows.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-column-process-scan</code></pre>
             <figure>
@@ -240,7 +240,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>MRRProData.plot_scan_process_scatter_compare()</code></h3>
+            <h3><code>MRRProData.plot.rain.scan_scatter_compare()</code></h3>
             <p>Process-wise scatter comparison from the column scan dataframe.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-scan-scatter-compare</code></pre>
             <figure>
@@ -249,7 +249,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>plot_fused_process_quicklook()</code></h3>
+            <h3><code>mrr.plot.rain.fused_quicklook()</code></h3>
             <p>Quicklook overlay of fused vertical process events on scan context.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-fused-quicklook</code></pre>
             <figure>
@@ -258,7 +258,7 @@
           </article>
 
           <article class="plot-card">
-            <h3><code>plot_process_to_hexagram()</code></h3>
+            <h3><code>mrr.plot.rain.process_mask_hexagram()</code></h3>
             <p>Theoretical RGB hexagram mask for one rain-process signature.</p>
             <pre><code>uv run python scripts/build_plot_examples.py --only plot-hexagram-process</code></pre>
             <figure>

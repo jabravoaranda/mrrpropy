@@ -8,7 +8,7 @@ import matplotlib
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 matplotlib.use("Agg")
 
@@ -127,7 +127,7 @@ def main() -> None:
             )
             classified = mrr.classify_rain_process(analysis=analysis)
 
-            fig_2d, path_2d = mrr.plot_rain_process_in_layer_2D(
+            fig_2d, path_2d = mrr.plot.rain.layer_2d(
                 target_datetime=period,
                 layer=layer,
                 x="Dm",
@@ -150,7 +150,7 @@ def main() -> None:
                 path_2d = compact_2d
             print(f"  [ok] 2D         -> {path_2d}")
 
-            fig_hex, path_hex = mrr.plot_rain_process_in_layer_hexagram(
+            fig_hex, path_hex = mrr.plot.rain.layer_hexagram(
                 analysis=analysis,
                 savefig=True,
                 output_dir=layer_output_dir,
@@ -169,7 +169,7 @@ def main() -> None:
                 path_hex = compact_hex
             print(f"  [ok] hexagram   -> {path_hex}")
 
-            fig_sum, path_sum = mrr.plot_processes_evolution(
+            fig_sum, path_sum = mrr.plot.rain.evolution(
                 classified=classified,
                 analysis=analysis,
                 savefig=True,

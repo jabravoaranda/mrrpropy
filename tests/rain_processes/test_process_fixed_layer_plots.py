@@ -10,11 +10,11 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.plotting import processes as process_plotting
+from mrrpropy.plotting import rain_processes as process_plotting
 
 matplotlib.use("Agg")
 
-pytestmark = [pytest.mark.slow, pytest.mark.plot, pytest.mark.integration]
+pytestmark = [pytest.mark.slow]
 
 
 class _SyntheticPlotSubject:
@@ -26,8 +26,8 @@ class _SyntheticPlotSubject:
 
 
 @pytest.fixture(scope="session")
-def analysis(raprompro_subset_10min_loaded_mrr):
-    return raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+def analysis(raprompro_mrr):
+    return raprompro_mrr.rain_process_analyze(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         selection_mode="fixed_layer",
@@ -42,19 +42,13 @@ def analysis(raprompro_subset_10min_loaded_mrr):
 
 
 @pytest.fixture(scope="session")
-def classified(raprompro_subset_10min_loaded_mrr, analysis):
-    return raprompro_subset_10min_loaded_mrr.classify_rain_process(analysis=analysis)
+def classified(raprompro_mrr, analysis):
+    return raprompro_mrr.classify_rain_process(analysis=analysis)
 
 
-def _fixed_layer_artifact_dir(artifact_dir: Path) -> Path:
-    path = artifact_dir
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def test_plot_rain_process_in_layer_2d(raprompro_subset_10min_loaded_mrr, artifact_dir):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_rain_process_in_layer_2D(
+def test_plot_rain_process_in_layer_2d(raprompro_mrr, product_dir):
+    output_dir = product_dir
+    fig, path = raprompro_mrr.plot.rain.layer_2d(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -77,14 +71,9 @@ def test_plot_rain_process_in_layer_2d(raprompro_subset_10min_loaded_mrr, artifa
     plt.close(fig)
 
 
-def test_plot_rain_process_in_layer_hexagram(
-    raprompro_subset_10min_loaded_mrr, analysis, artifact_dir
-):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    (
-        fig,
-        filepath,
-    ) = raprompro_subset_10min_loaded_mrr.plot_rain_process_in_layer_hexagram(
+def test_plot_rain_process_in_layer_hexagram(raprompro_mrr, analysis, product_dir):
+    output_dir = product_dir
+    (fig, filepath,) = raprompro_mrr.plot.rain.layer_hexagram(
         analysis=analysis,
         savefig=True,
         output_dir=output_dir,
@@ -108,13 +97,13 @@ def test_plot_rain_process_in_layer_hexagram(
 
 
 def test_plot_microphysics_summary_multipanel(
-    raprompro_subset_10min_loaded_mrr,
+    raprompro_mrr,
     analysis,
     classified,
-    artifact_dir,
+    product_dir,
 ):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_processes_evolution(
+    output_dir = product_dir
+    fig, path = raprompro_mrr.plot.rain.evolution(
         classified=classified,
         analysis=analysis,
         savefig=True,
@@ -130,8 +119,7 @@ def test_plot_microphysics_summary_multipanel(
         classified.attrs.pop("max_tau_pvalue", None)
     classified.attrs["rgb_mapping"] = str(classified.attrs["rgb_mapping"])
     classified.to_netcdf(
-        artifact_dir
-        / f"{raprompro_subset_10min_loaded_mrr.path.stem}_process_classification.nc"
+        product_dir / f"{raprompro_mrr.path.stem}_process_classification.nc"
     )
 
     assert isinstance(fig, Figure)
@@ -140,9 +128,9 @@ def test_plot_microphysics_summary_multipanel(
     plt.close(fig)
 
 
-def test_plot_event_scatter(raprompro_subset_10min_loaded_mrr, artifact_dir):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_event_scatter(
+def test_plot_event_scatter(raprompro_mrr, product_dir):
+    output_dir = product_dir
+    fig, path = raprompro_mrr.plot.rain.event_scatter(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -164,11 +152,11 @@ def test_plot_event_scatter(raprompro_subset_10min_loaded_mrr, artifact_dir):
 
 
 def test_plot_region_scatter(
-    raprompro_subset_10min_loaded_mrr,
+    raprompro_mrr,
     classified,
-    artifact_dir,
+    product_dir,
 ):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
+    output_dir = product_dir
     labels = sorted(
         {
             label
@@ -178,7 +166,7 @@ def test_plot_region_scatter(
     )
     processes = labels[:2] if labels else None
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_region_scatter(
+    fig, path = raprompro_mrr.plot.rain.region_scatter(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -203,11 +191,11 @@ def test_plot_region_scatter(
 
 
 def test_plot_process_scatter(
-    raprompro_subset_10min_loaded_mrr,
+    raprompro_mrr,
     classified,
-    artifact_dir,
+    product_dir,
 ):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
+    output_dir = product_dir
     labels = classified["proc_label"].values.astype(str)
     process = next(
         (
@@ -222,7 +210,7 @@ def test_plot_process_scatter(
     if process is None:
         pytest.skip("No classified process is available in this fixture.")
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_process_scatter(
+    fig, path = raprompro_mrr.plot.rain.process_scatter(
         classified=classified,
         process=process,
         target_datetime=(
@@ -280,11 +268,11 @@ def test_select_layer_event_data_uses_top_of_layer_as_percent_reference():
 
 
 def test_plot_event_vertical_percent_profiles(
-    raprompro_subset_10min_loaded_mrr,
-    artifact_dir,
+    raprompro_mrr,
+    product_dir,
 ):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
+    output_dir = product_dir
+    fig, path = raprompro_mrr.plot.rain.event_vertical_profiles(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -306,11 +294,11 @@ def test_plot_event_vertical_percent_profiles(
 
 
 def test_plot_process_vertical_percent_profiles(
-    raprompro_subset_10min_loaded_mrr,
+    raprompro_mrr,
     classified,
-    artifact_dir,
+    product_dir,
 ):
-    output_dir = _fixed_layer_artifact_dir(artifact_dir)
+    output_dir = product_dir
     labels = classified["proc_label"].values.astype(str)
     process = next(
         (
@@ -325,10 +313,7 @@ def test_plot_process_vertical_percent_profiles(
     if process is None:
         pytest.skip("No classified process is available in this fixture.")
 
-    (
-        fig,
-        path,
-    ) = raprompro_subset_10min_loaded_mrr.plot_process_vertical_percent_profiles(
+    (fig, path,) = raprompro_mrr.plot.rain.process_vertical_profiles(
         classified=classified,
         process=process,
         target_datetime=(

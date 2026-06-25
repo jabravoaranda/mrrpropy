@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -13,7 +12,7 @@ import xarray as xr
 
 matplotlib.use("Agg")
 
-pytestmark = [pytest.mark.slow, pytest.mark.integration]
+pytestmark = [pytest.mark.slow]
 
 KEY_REGRESSION_PAIRS = [
     ("Ze", "Ze", "dBZ"),
@@ -57,10 +56,8 @@ def _stats(x: np.ndarray, y: np.ndarray) -> dict[str, float] | None:
 
 
 @pytest.fixture(scope="session")
-def raw_dataset(raw_dataset_path: Path) -> Iterator[xr.Dataset]:
-    ds = xr.open_dataset(raw_dataset_path)
-    yield ds
-    ds.close()
+def raw_dataset(raw_mrr) -> xr.Dataset:
+    return raw_mrr.ds
 
 
 @pytest.fixture(scope="session")
@@ -76,26 +73,10 @@ def test_processing_raprompro_smoke(generated_raprompro_path: Path) -> None:
     assert generated_raprompro_path.stat().st_size > 0
 
 
-def test_processing_raprompro_from_raw(generated_raprompro_path: Path) -> None:
-    if os.getenv("MRRPRO_FORCE_REPROCESS", "").strip().lower() not in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }:
-        pytest.skip(
-            "Set MRRPRO_FORCE_REPROCESS=1 to force regeneration from RAW in this test."
-        )
-
-    assert generated_raprompro_path.exists()
-    assert generated_raprompro_path.suffix == ".nc"
-    assert generated_raprompro_path.stat().st_size > 0
-
-
 def test_process_raprompro_regression(
     raw_dataset: xr.Dataset,
     generated_raprompro_dataset: xr.Dataset,
-    artifact_dir: Path,
+    product_dir: Path,
 ) -> None:
     rows: list[dict[str, float | int | str]] = []
 
@@ -126,7 +107,7 @@ def test_process_raprompro_regression(
 
         assert stats["corr"] > 0.6, f"Low correlation for {v0}: {stats['corr']}"
 
-    with open(artifact_dir / "metrics.csv", "w", newline="", encoding="utf-8") as f:
+    with open(product_dir / "metrics.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
             fieldnames=[
@@ -147,9 +128,9 @@ def test_process_raprompro_regression(
 
 
 def test_process_raprompro_generated_metadata(
-    raw_subset_10min_mrr,
+    raw_mrr,
 ) -> None:
-    ds = raw_subset_10min_mrr.process_raprompro(
+    ds = raw_mrr.process_raprompro(
         save=False,
         save_spe_3d=True,
         save_dsd_3d=True,
@@ -178,11 +159,10 @@ def test_process_raprompro_generated_metadata(
     assert np.all(np.diff(ds["speed"].values) > 0.0)
 
 
-@pytest.mark.plot
 def test_process_raprompro_generated_visual_comparison(
     raw_dataset: xr.Dataset,
     generated_raprompro_dataset: xr.Dataset,
-    artifact_dir: Path,
+    product_dir: Path,
 ) -> None:
     for v0, v1, units in KEY_REGRESSION_PAIRS:
         if v0 not in raw_dataset or v1 not in generated_raprompro_dataset:
@@ -222,7 +202,7 @@ def test_process_raprompro_generated_visual_comparison(
         plt.xlim(lo, hi)
         plt.ylim(lo, hi)
         fig.savefig(
-            artifact_dir / f"generated_correlation_check_{v0}_vs_{v1}.png",
+            product_dir / f"generated_correlation_check_{v0}_vs_{v1}.png",
             dpi=200,
             bbox_inches="tight",
         )

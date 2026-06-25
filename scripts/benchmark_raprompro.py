@@ -5,7 +5,7 @@ import statistics
 import time
 from pathlib import Path
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 
 DEFAULT_RAW_PATH = Path(

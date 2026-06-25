@@ -6,21 +6,21 @@ import matplotlib.pyplot as plt
 import pytest
 
 
-pytestmark = [pytest.mark.slow, pytest.mark.plot, pytest.mark.integration]
+pytestmark = [pytest.mark.slow]
 
 
 def test_process_height_plots_use_dataset_range_by_default(
-    raprompro_subset_10min_loaded_mrr,
-    artifact_dir,
+    raprompro_mrr,
+    product_dir,
 ):
-    ds = raprompro_subset_10min_loaded_mrr.raprompro
+    ds = raprompro_mrr.raprompro
     assert ds is not None
     expected = (
         float(ds["range"].values.min() / 1000.0),
         float(ds["range"].values.max() / 1000.0),
     )
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
+    fig, path = raprompro_mrr.plot.rain.event_vertical_profiles(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -28,7 +28,7 @@ def test_process_height_plots_use_dataset_range_by_default(
         layer=(1000.0, 2000.0),
         variables=("Dm", "Nw", "LWC"),
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
     )
 
     assert path is not None
@@ -39,13 +39,13 @@ def test_process_height_plots_use_dataset_range_by_default(
 
 
 def test_process_height_plots_allow_user_y_limits(
-    raprompro_subset_10min_loaded_mrr,
-    artifact_dir,
+    raprompro_mrr,
+    product_dir,
 ):
     expected = (0.8, 2.4)
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
-        scan_df=raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+    fig, path = raprompro_mrr.plot.rain.column_scan(
+        scan_df=raprompro_mrr.build_sliding_process_dataframe(
             period=(
                 datetime(2025, 10, 29, 19, 23, 0),
                 datetime(2025, 10, 29, 19, 33, 0),
@@ -57,7 +57,7 @@ def test_process_height_plots_allow_user_y_limits(
         ),
         y_limits=expected,
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
     )
 
     assert path is not None

@@ -30,7 +30,7 @@ uv run python -c "import mrrpropy"</code></pre>
     <h2>Minimal workflow</h2>
     <pre><code>from pathlib import Path
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 raw_path = Path("tests/data/RAW/mrrpro81/2025/03/08/20250308_120000_10min.nc")
 processed_path = Path("tests/data/PRODUCTS/mrrpro81/2025/03/08/20250308_120000_10min_raprompro.nc")
@@ -43,12 +43,12 @@ mrr.load_raprompro(processed_path)
 # Option 2: run the processing workflow
 # processed = mrr.process_raprompro(save=False)
 
-fig, ax = mrr.quicklook(variable="Ze", source="raprompro", vmin=0, vmax=40)</code></pre>
+fig, ax = mrr.plot.quicklook(variable="Ze", source="raprompro", vmin=0, vmax=40)</code></pre>
 
     <h2>Working with spectra</h2>
     <pre><code>import datetime
 
-fig, path = mrr.plot_spectrum(
+fig, path = mrr.plot.spectrum(
     datetime.datetime(2025, 3, 8, 12, 5, 0),
     target_range=2880.0,
     spectrum_var="spectrum_raw",

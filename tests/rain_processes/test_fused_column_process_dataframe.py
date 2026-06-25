@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.analysis import sliding as sliding_analysis
 
 from tests.rain_processes.test_process_scan_plots import (
     MIN_TAU_STRENGTH,
@@ -12,10 +12,12 @@ from tests.rain_processes.test_process_scan_plots import (
     WINDOW_THICKNESS_M,
 )
 
+pytestmark = [pytest.mark.slow]
+
 
 @pytest.fixture(scope="session")
-def scan_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
-    return raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+def scan_df(raprompro_mrr) -> pd.DataFrame:
+    return raprompro_mrr.build_sliding_process_dataframe(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=WINDOW_THICKNESS_M,
@@ -24,11 +26,9 @@ def scan_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
     )
 
 
-def test_build_fused_column_process_dataframe(
-    raprompro_subset_10min_loaded_mrr, scan_df
-):
-    fused = process_analysis.build_fused_column_process_dataframe(
-        raprompro_subset_10min_loaded_mrr,
+def test_build_fused_column_process_dataframe(raprompro_mrr, scan_df):
+    fused = sliding_analysis.build_fused_column_process_dataframe(
+        raprompro_mrr,
         scan_df,
         min_consecutive=3,
         variable_threshold="Ze",
@@ -52,3 +52,4 @@ def test_build_fused_column_process_dataframe(
 
     assert int(fused.loc[0, "n_windows_merged"]) >= 3
     assert float(fused.loc[0, "thickness_fused"]) > 0.0
+

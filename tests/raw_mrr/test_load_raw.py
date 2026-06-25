@@ -3,7 +3,7 @@ import pytest
 
 
 def test_dataset_loaded(raw_mrr):
-    """El dataset se carga correctamente y tiene dimensiones no vacías."""
+    """The dataset loads correctly and has non-empty dimensions."""
     assert raw_mrr.ds is not None
     assert raw_mrr.n_time > 0
     assert raw_mrr.n_range > 0
@@ -12,7 +12,7 @@ def test_dataset_loaded(raw_mrr):
 
 
 def test_basic_properties(raw_mrr):
-    """Comprobación de propiedades básicas: time, range, variables."""
+    """Check basic properties: time, range and variables."""
     t_index = raw_mrr.time
     assert len(t_index) == raw_mrr.n_time
 
@@ -27,17 +27,17 @@ def test_basic_properties(raw_mrr):
 
 
 def test_get_field(raw_mrr):
-    """get_field debe devolver un DataArray con las dimensiones esperadas."""
+    """get_field should return a DataArray with the expected dimensions."""
     ze = raw_mrr.get_field("Ze")
     assert ze.dims == ("time", "range")
     assert ze.shape == (raw_mrr.n_time, raw_mrr.n_range)
 
     with pytest.raises(KeyError):
-        raw_mrr.get_field("variable_que_no_existe")
+        raw_mrr.get_field("missing_variable")
 
 
 def test_subset_time_and_range(raw_mrr):
-    """subset debe devolver un nuevo MRRProData con dimensiones reducidas."""
+    """subset should return a new MRRProData with reduced dimensions."""
     mrr_sub = raw_mrr.subset(time_slice=slice(raw_mrr.time[0], raw_mrr.time[9]))
     assert mrr_sub.n_time == 10
     assert mrr_sub.n_range == raw_mrr.n_range
@@ -55,7 +55,7 @@ def test_subset_time_and_range(raw_mrr):
 
 
 def test_nearest_time_index_and_profile(raw_mrr):
-    """nearest_time_index y profile_at deben ser coherentes."""
+    """nearest_time_index and profile_at should be consistent."""
     t0 = raw_mrr.time[0]
     idx0 = raw_mrr.nearest_time_index(t0)
     assert idx0 == 0
@@ -70,7 +70,7 @@ def test_nearest_time_index_and_profile(raw_mrr):
 
 
 def test_gate_spectrum(raw_mrr):
-    """gate_spectrum debe devolver espectro y eje de velocidad coherentes."""
+    """gate_spectrum should return a consistent spectrum and velocity axis."""
     vel, spec = raw_mrr.gate_spectrum(time_idx=0, range_idx=0)
 
     assert len(vel.shape) == 1
@@ -84,3 +84,4 @@ def test_gate_spectrum(raw_mrr):
     vel_raw, spec_raw = raw_mrr.gate_spectrum(time_idx=0, range_idx=0, use_raw=True)
     assert vel_raw.shape == vel.shape
     assert spec_raw.shape == spec.shape
+

@@ -5,7 +5,7 @@ Repositorio analizado: `C:\Users\Fizico\Documents\github\mrrpropy`
 
 ## 1. Arquitectura general del software
 
-`mrrpropy` es un paquete Python para carga, procesado RaProMPro, visualizacion y analisis microfisico de datos METEK MRR-PRO. La API publica esta concentrada en `mrrpropy.raw_class.MRRProData`, que encapsula:
+`mrrpropy` es un paquete Python para carga, procesado RaProMPro, visualizacion y analisis microfisico de datos METEK MRR-PRO. La API publica esta concentrada en `mrrpropy.dataset.MRRProData`, que encapsula:
 
 - `ds`: dataset RAW abierto con `xarray`.
 - `raprompro`: producto procesado RaProMPro, generado o cargado desde NetCDF.
@@ -14,14 +14,17 @@ Repositorio analizado: `C:\Users\Fizico\Documents\github\mrrpropy`
 
 Arquitectura por modulos:
 
-- `mrrpropy/raw_class.py`: fachada de alto nivel. Expone carga RAW, subsetting, perfiles, espectros, procesado, plots y analisis de procesos.
+- `mrrpropy/dataset.py`: fachada de alto nivel. Expone carga RAW, subsetting, perfiles, espectros, procesado, plots y analisis de procesos.
 - `mrrpropy/processing/raprompro.py`: wrapper xarray del nucleo cientifico RaProMPro. Convierte datos CF/Radial MRR-PRO en productos microfisicos.
 - `mrrpropy/RaProMPro_original.py`: implementacion cientifica original conservada como referencia.
 - `mrrpropy/RaProMPro_optimized.py`: implementacion optimizada usada por el wrapper canonico.
-- `mrrpropy/analysis/processes.py`: analisis de tendencias verticales, clasificacion de procesos, dataframes dinamicos, escaneo de columna y deteccion de episodios.
-- `mrrpropy/analysis/process_features.py`: construccion de `process_features` en dos fases: rasgos microfisicos, espectrales y de contexto.
+- `mrrpropy/analysis/trends.py`: tendencias verticales y metodos de ajuste.
+- `mrrpropy/analysis/rain_processes_classification.py`: analisis y clasificacion de procesos de lluvia.
+- `mrrpropy/analysis/classified_rain_process_metrics.py`: metricas por capa de procesos ya clasificados.
+- `mrrpropy/analysis/sliding.py`: aplicacion del analisis sobre ventanas verticales deslizantes, episodios y fusion.
+- `mrrpropy/analysis/rain_process_features.py`: construccion de rasgos microfisicos, espectrales y de contexto para procesos de lluvia.
 - `mrrpropy/hexagram.py`: generacion de hexagramas RGB, mapeo RGB a celdas y mascaras teoricas por proceso.
-- `mrrpropy/processes.py`: metadatos compartidos de procesos, firmas de clasificacion, codigos y marcadores.
+- `mrrpropy/rain_process_info.py`: metadatos compartidos de procesos, firmas de clasificacion, codigos y marcadores.
 - `mrrpropy/plotting/`: funciones de visualizacion RAW, espectral, procesada y de procesos.
 - `mrrpropy/cli/main.py`: CLI minima (`mrrpropy version`).
 - `scripts/` y `workbench/scripts/`: cadenas reproducibles para procesar ficheros, generar quicklooks, analisis de capas y escaneos de columna.
@@ -120,7 +123,7 @@ La clasificacion usa el signo de las tendencias de `Dm`, `Nw` y `LWC`, con RGB s
 - `G = Nw`
 - `B = LWC`
 
-Firmas implementadas en `mrrpropy/processes.py`:
+Firmas implementadas en `mrrpropy/rain_process_info.py`:
 
 | Proceso | Firma `(Dm, Nw, LWC)` |
 |---|---|
@@ -144,21 +147,24 @@ Muestras con fuerza insuficiente o p-value no aceptado se etiquetan como `steady
 
 ### Escaneo de columna y episodios
 
-- `build_column_process_scan_dataframe()` recorre la columna con ventanas verticales deslizantes (`window_thickness_m`, `window_step_m`).
+- `build_sliding_process_dataframe()` recorre la columna con ventanas verticales deslizantes (`window_thickness_m`, `window_step_m`).
 - En cada ventana ejecuta el mismo analisis de tendencias y clasificacion.
-- `detect_column_process_episodes()` detecta episodios persistentes por ventana cuando un proceso aparece en perfiles consecutivos.
+- `detect_sliding_process_episodes()` detecta episodios persistentes por ventana cuando un proceso aparece en perfiles consecutivos.
 - `build_fused_column_process_dataframe()` fusiona detecciones verticalmente adyacentes del mismo proceso y recomputa tendencias en la capa fusionada.
 
 ## 5. Modulos relacionados con `rain_processes`
 
 No existe un paquete fuente llamado literalmente `mrrpropy/rain_processes`; el nombre aparece principalmente en tests. Los modulos funcionales equivalentes son:
 
-- `mrrpropy/analysis/processes.py`: nucleo de `rain_process_analyze`, `classify_rain_process`, escaneo de columna, episodios y dataframes.
-- `mrrpropy/analysis/process_features.py`: extraccion de rasgos para clasificacion por fases.
+- `mrrpropy/analysis/trends.py`: `compute_layer_trend` y `compute_layer_trend_ols`.
+- `mrrpropy/analysis/rain_processes_classification.py`: `rain_process_analyze`, `classify_rain_process` y clasificacion desde features.
+- `mrrpropy/analysis/classified_rain_process_metrics.py`: metricas por capa de procesos clasificados.
+- `mrrpropy/analysis/sliding.py`: ventanas deslizantes, episodios y capas fusionadas.
+- `mrrpropy/analysis/rain_process_features.py`: extraccion de rasgos para clasificacion de procesos de lluvia.
 - `mrrpropy/hexagram.py`: RGB/hexagrama y mascaras teoricas por proceso.
-- `mrrpropy/processes.py`: firmas y metadatos de procesos.
-- `mrrpropy/plotting/processes.py`: figuras de procesos, hexagramas, cortinas de columna, scatter y quicklooks fusionados.
-- `mrrpropy/raw_class.py`: metodos publicos que delegan en los modulos anteriores.
+- `mrrpropy/rain_process_info.py`: firmas y metadatos de procesos.
+- `mrrpropy/plotting/rain_processes.py`: figuras de procesos, hexagramas, cortinas de columna, scatter y quicklooks fusionados.
+- `mrrpropy/dataset.py`: metodos publicos que delegan en los modulos anteriores.
 
 Tests relacionados:
 

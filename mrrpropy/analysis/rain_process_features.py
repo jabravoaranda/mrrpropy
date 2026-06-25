@@ -1,27 +1,16 @@
 from __future__ import annotations
 
-from typing import Literal, cast
-
 import numpy as np
 import xarray as xr
 
 
-class _UnsetType:
-    pass
-
-
-_UNSET = _UnsetType()
-
-ProcessFeatureMode = Literal["fixed_layer", "scan"]
-
-
-def build_process_features(
+def build_rain_process_features(
     ds: xr.Dataset,
     *,
-    mode: ProcessFeatureMode,
+    mode: str,
     range_coord: str = "range",
     window_thickness_m: float | None = None,
-    window_step_m: float | None | _UnsetType = _UNSET,
+    window_step_m: float | None = None,
     fixed_layer_top_m: float | None = None,
     fixed_layer_bottom_m: float | None = None,
     bb_bottom_m: float | xr.DataArray,
@@ -36,7 +25,7 @@ def build_process_features(
     velocity_coord: str = "velocity",
 ) -> xr.Dataset:
     """
-    Phase A: build the full `process_features` dataset by merging:
+    Build rain-process feature variables by merging:
     - microphysical features
     - Doppler spectral features
     - context features
@@ -48,17 +37,14 @@ def build_process_features(
 
     Scan defaults
     -------------
-    In scan mode, if ``window_thickness_m`` and/or ``window_step_m`` are not
-    provided, the function falls back to the values stored in the caller's
-    ``micro_cfg`` (typically :class:`mrrpropy.raw_class.MicrophysicsConfig`).
-
-    ``window_step_m=None`` means "raw resolution": infer the scan step from the
-    native range grid spacing (median of the range-coordinate differences).
+    In scan mode, ``window_thickness_m`` may fall back to ``micro_cfg``.
+    ``window_step_m=None`` means "raw resolution": infer the step from the
+    native range grid spacing.
     """
     mode_value = str(mode).strip().lower()
     if mode_value not in {"fixed_layer", "scan"}:
         raise ValueError("mode must be 'fixed_layer' or 'scan'.")
-    mode = cast(ProcessFeatureMode, mode_value)
+    mode = mode_value
     if "time" not in ds.coords:
         raise KeyError("ds must contain coord 'time'.")
     if range_coord not in ds.coords:
@@ -96,21 +82,13 @@ def build_process_features(
             if cfg_thickness is not None:
                 window_thickness_m = float(cfg_thickness)
 
-        step_param = (
-            getattr(micro_cfg, "window_step_m", None)
-            if window_step_m is _UNSET
-            else window_step_m
-        )
-
         if window_thickness_m is None:
             raise ValueError("scan mode requires window_thickness_m.")
         thickness = float(window_thickness_m)
-        if step_param is None:
+        if window_step_m is None:
             step = _infer_native_step_m()
-        elif isinstance(step_param, _UnsetType):
-            raise RuntimeError("Internal error: unresolved window_step_m.")
         else:
-            step = float(step_param)
+            step = float(window_step_m)
         if not (np.isfinite(thickness) and thickness > 0.0):
             raise ValueError("scan mode requires window_thickness_m > 0.")
         if not (np.isfinite(step) and step > 0.0):
@@ -136,7 +114,7 @@ def build_process_features(
         z_top = xr.DataArray(centers + 0.5 * thickness, dims=("layer",))
         z_bottom = xr.DataArray(centers - 0.5 * thickness, dims=("layer",))
 
-    micro = get_microphysical_features(
+    micro = get_microphysical_process_features(
         ds,
         mode=mode,
         z_top=z_top,
@@ -147,7 +125,7 @@ def build_process_features(
         Nw_var=Nw_var,
         LWC_var=LWC_var,
     )
-    spectral = get_spectral_features(
+    spectral = get_spectral_process_features(
         ds,
         mode=mode,
         z_top=z_top,
@@ -157,7 +135,7 @@ def build_process_features(
         spectrum_var=spectrum_var,
         velocity_coord=velocity_coord,
     )
-    context = get_context(
+    context = get_rain_process_context_features(
         ds,
         mode=mode,
         z_top=z_top,
@@ -230,10 +208,10 @@ def _spectral_moments_1d(
     return (v_mean, v_std, v_p10, v_p50, v_p90)
 
 
-def get_spectral_features(
+def get_spectral_process_features(
     ds: xr.Dataset,
     *,
-    mode: ProcessFeatureMode,
+    mode: str,
     z_top: xr.DataArray,
     z_bottom: xr.DataArray,
     z_center: xr.DataArray,
@@ -265,7 +243,7 @@ def get_spectral_features(
     mode_value = str(mode).strip().lower()
     if mode_value not in {"fixed_layer", "scan"}:
         raise ValueError("mode must be 'fixed_layer' or 'scan'.")
-    mode = cast(ProcessFeatureMode, mode_value)
+    mode = mode_value
 
     spectrum = ds[spectrum_var]
     if spectrum.ndim != 3 or spectrum.dims[0] != "time" or spectrum.dims[1] != range_coord:
@@ -446,10 +424,10 @@ def get_spectral_features(
     return out
 
 
-def get_context(
+def get_rain_process_context_features(
     ds: xr.Dataset,
     *,
-    mode: ProcessFeatureMode,
+    mode: str,
     z_top: xr.DataArray,
     z_bottom: xr.DataArray,
     z_center: xr.DataArray,
@@ -479,7 +457,7 @@ def get_context(
     mode_value = str(mode).strip().lower()
     if mode_value not in {"fixed_layer", "scan"}:
         raise ValueError("mode must be 'fixed_layer' or 'scan'.")
-    mode = cast(ProcessFeatureMode, mode_value)
+    mode = mode_value
 
     out_dims: tuple[str, ...]
     if mode == "fixed_layer":
@@ -649,10 +627,10 @@ def _sign_char(sign: int | float) -> str:
     return "0"
 
 
-def get_microphysical_features(
+def get_microphysical_process_features(
     ds: xr.Dataset,
     *,
-    mode: ProcessFeatureMode,
+    mode: str,
     z_top: xr.DataArray,
     z_bottom: xr.DataArray,
     z_center: xr.DataArray,
@@ -679,7 +657,7 @@ def get_microphysical_features(
     mode_value = str(mode).strip().lower()
     if mode_value not in {"fixed_layer", "scan"}:
         raise ValueError("mode must be 'fixed_layer' or 'scan'.")
-    mode = cast(ProcessFeatureMode, mode_value)
+    mode = mode_value
 
     out_dims: tuple[str, ...]
     if mode == "fixed_layer":

@@ -6,7 +6,7 @@ from pathlib import Path
 import matplotlib
 import xarray as xr
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 matplotlib.use("Agg")
 
@@ -85,7 +85,7 @@ def main() -> None:
         print(f"Variables   : {', '.join(variables)}")
 
         for variable in variables:
-            fig, _ = mrr.quicklook(variable=variable, source="raprompro")
+            fig, _ = mrr.plot.quicklook(variable=variable, source="raprompro")
             png_path = output_dir / f"{input_file.stem}_{variable}.png"
             fig.savefig(png_path, dpi=150, bbox_inches="tight")
             fig.clf()

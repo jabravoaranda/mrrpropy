@@ -8,32 +8,32 @@ from matplotlib.figure import Figure
 
 matplotlib.use("Agg")
 
-pytestmark = [pytest.mark.slow, pytest.mark.plot]
+pytestmark = [pytest.mark.slow]
 
 
-def test_quickplot_reflectivity_runs(raw_subset_10min_mrr, artifact_dir):
+def test_quickplot_reflectivity_runs(raw_mrr, product_dir):
     pytest.importorskip("matplotlib")
 
     variable = "Ze"
-    fig, ax = raw_subset_10min_mrr.quicklook(variable=variable, source="raw")
-    fig.savefig(artifact_dir / f"test_quickplot_{variable}.png")
+    fig, ax = raw_mrr.plot.quicklook(variable=variable, source="raw")
+    fig.savefig(product_dir / f"test_quickplot_{variable}.png")
 
     assert isinstance(fig, Figure)
     assert isinstance(ax, Axes)
     plt.close(fig)
 
 
-def test_plot_spectrum_saves_png(raw_subset_10min_mrr, artifact_dir):
-    ds = raw_subset_10min_mrr.ds
+def test_plot_spectrum_saves_png(raw_mrr, product_dir):
+    ds = raw_mrr.ds
     target_time = datetime.datetime(2025, 10, 29, 19, 28, 0)
     target_range = float(ds["range"].values[ds.sizes["range"] // 2])
 
-    fig, filepath = raw_subset_10min_mrr.plot_spectrum(
+    fig, filepath = raw_mrr.plot.spectrum(
         target_time,
         target_range,
         spectrum_var="spectrum_raw",
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
         dpi=120,
     )
 
@@ -45,16 +45,16 @@ def test_plot_spectrum_saves_png(raw_subset_10min_mrr, artifact_dir):
     plt.close(fig)
 
 
-def test_plot_spectra_by_range_saves_png(raw_subset_10min_mrr, artifact_dir):
-    ds = raw_subset_10min_mrr.ds
+def test_plot_spectra_by_range_saves_png(raw_mrr, product_dir):
+    ds = raw_mrr.ds
     target_time = datetime.datetime(2025, 10, 29, 19, 28, 0)
     ranges = ds["range"].values[[5, ds.sizes["range"] // 2, -5]].astype(float)
 
-    fig, filepath = raw_subset_10min_mrr.plot_spectra_by_range(
+    fig, filepath = raw_mrr.plot.spectra_by_range(
         target_time,
         ranges,
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
         dpi=120,
     )
 
@@ -66,14 +66,14 @@ def test_plot_spectra_by_range_saves_png(raw_subset_10min_mrr, artifact_dir):
     plt.close(fig)
 
 
-def test_plot_spectrogram_saves_png(raw_subset_10min_mrr, artifact_dir):
+def test_plot_spectrogram_saves_png(raw_mrr, product_dir):
     target_time = datetime.datetime(2025, 10, 29, 19, 28, 0)
 
-    fig, filepath = raw_subset_10min_mrr.plot_spectrogram(
+    fig, filepath = raw_mrr.plot.spectrogram(
         target_time,
         spectrum_var="spectrum_raw",
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
         dpi=120,
     )
 

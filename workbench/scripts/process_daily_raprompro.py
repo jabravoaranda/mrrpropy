@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 
 DEFAULT_INPUT_DIR = Path(r"workbench/data/mrrpro81/2025/10/29")

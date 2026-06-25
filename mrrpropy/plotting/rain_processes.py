@@ -13,7 +13,12 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.processes import PROCESS_CODES, PROCESS_MARKERS, PROCESS_SIGNATURES
+from mrrpropy.rain_process_info import (
+    PROCESS_CODES,
+    PROCESS_COLORS,
+    PROCESS_MARKERS,
+    PROCESS_PLOT_ORDER,
+)
 from mrrpropy.hexagram import (
     get_hexagram_assets,
     get_process_hexagram_mask,
@@ -694,12 +699,12 @@ def plot_rain_process_in_layer_hexagram(
     alpha = kwargs.get("alpha", pcfg.alpha_points)
 
     if analysis is None or not isinstance(analysis, xr.Dataset):
-        raise TypeError("analysis debe ser un xr.Dataset (salida de rain_process_analyze).")
+        raise TypeError("analysis must be an xr.Dataset produced by rain_process_analyze.")
 
     required = ("hex_x", "hex_y", "minutes", "R", "G", "B")
     missing = [v for v in required if v not in analysis]
     if missing:
-        raise KeyError(f"analysis no contiene variables requeridas: {missing}")
+        raise KeyError(f"analysis is missing required variables: {missing}")
 
     k = analysis.attrs["k"]
     hex_assets = get_hexagram_assets(k=k)
@@ -761,16 +766,17 @@ def plot_rain_process_in_layer_hexagram(
     selection_mode = str(analysis.attrs.get("selection_mode", "fixed_layer"))
     t0s = analysis.attrs.get("period_start", None)
     t1s = analysis.attrs.get("period_end", None)
+    layer_kind = "Sliding window" if selection_mode == "sliding" else "Fixed layer"
     layer_txt = (
-        f"{'Scan window' if selection_mode == 'scan' else 'Fixed layer'} "
+        f"{layer_kind} "
         f"{float(z_bottom_m):.0f}-{float(z_top_m):.0f} m"
         if (z_bottom_m is not None and z_top_m is not None)
-        else "Capa (desconocida)"
+        else "Unknown layer"
     )
     period_txt = f"{t0s} → {t1s}" if (t0s is not None and t1s is not None) else ""
-    ax.set_title(f"Hexagrama RGB (k={k}) | {layer_txt}\n{period_txt}".rstrip())
-    ax.set_xlabel("hex_x (índice rejilla)")
-    ax.set_ylabel("hex_y (índice rejilla)")
+    ax.set_title(f"RGB hexagram (k={k}) | {layer_txt}\n{period_txt}".rstrip())
+    ax.set_xlabel("hex_x (grid index)")
+    ax.set_ylabel("hex_y (grid index)")
     ax.set_xlim(-0.5, nx - 0.5)
     ax.set_ylim(-0.5, ny - 0.5)
     ax.grid(False)
@@ -819,21 +825,7 @@ def plot_processes_evolution(
     label_fs = kwargs.get("label_fs", 16)
     tick_fs = kwargs.get("tick_fs", 14)
 
-    process_order = kwargs.get(
-        "process_order",
-        [
-            "unknown",
-            "evaporation",
-            "breakup",
-            "growth_depletion",
-            "growth_depletion_gain",
-            "growth_depletion_loss",
-            "growth",
-            "activation",
-            "autoconversion",
-            "no_data",
-        ],
-    )
+    process_order = kwargs.get("process_order", PROCESS_PLOT_ORDER)
 
     if not isinstance(classified, xr.Dataset):
         raise TypeError("classified debe ser un xr.Dataset.")
@@ -869,7 +861,7 @@ def plot_processes_evolution(
     extra_labels = [label for label in present_labels if label not in ordered_labels]
     unique_labels = ordered_labels + extra_labels
     if len(unique_labels) > 26:
-        raise ValueError("Hay más de 26 categorías de proceso; A,B,C... ya no basta.")
+        raise ValueError("There are more than 26 process categories; A, B, C... is no longer enough.")
 
     map_code = {label: PROCESS_CODES.get(label, label.upper()) for label in unique_labels}
     y_index = np.array([unique_labels.index(label) for label in labels], dtype=int)
@@ -1002,21 +994,7 @@ def plot_column_process_scan(
     if color_mode not in {"process", "hexagram"}:
         raise ValueError("color_mode must be 'process' or 'hexagram'.")
 
-    process_colors = kwargs.get(
-        "process_colors",
-        {
-            "breakup": "#12af54",
-            "growth_depletion": "#1b9e77",
-            "growth_depletion_gain": "#f808d0",
-            "growth_depletion_loss": "#ff0000",
-            "evaporation": "#000000",
-            "growth": "#91209b",
-            "activation": "#66a61e",
-            "steady_or_weak": "#bdbdbd",
-            "unknown": "#666666",
-            "no_data": "#f0f0f0",
-        },
-    )
+    process_colors = kwargs.get("process_colors", PROCESS_COLORS)
 
     df = scan_df.copy()
     df["time"] = pd.to_datetime(df["time"])
@@ -1201,18 +1179,7 @@ def plot_fused_process_quicklook(
     if scan_df.empty and fused_df.empty:
         raise ValueError("scan_df and fused_df are both empty.")
 
-    process_colors: dict[str, Any] = {
-        "breakup": "#12af54",
-        "growth_depletion": "#1b9e77",
-        "growth_depletion_gain": "#f808d0",
-        "growth_depletion_loss": "#ff0000",
-        "evaporation": "#000000",
-        "growth": "#91209b",
-        "activation": "#66a61e",
-        "steady_or_weak": "#bdbdbd",
-        "unknown": "#666666",
-        "no_data": "#f0f0f0",
-    }
+    process_colors: dict[str, Any] = dict(PROCESS_COLORS)
 
     def _resolve_column(df: pd.DataFrame, requested: str, alternatives: tuple[str, ...]) -> str:
         if requested in df.columns:
@@ -1452,21 +1419,7 @@ def plot_scan_process_scatter_compare(
     if missing:
         raise KeyError(f"scan_df must contain columns: {missing}")
 
-    process_colors = kwargs.get(
-        "process_colors",
-        {
-            "breakup": "#d95f02",
-            "growth_depletion": "#1b9e77",
-            "growth_depletion_gain": "#7570b3",
-            "growth_depletion_loss": "#6a3d9a",
-            "evaporation": "#7570b3",
-            "growth": "#e7298a",
-            "activation": "#66a61e",
-            "steady_or_weak": "#bdbdbd",
-            "unknown": "#666666",
-            "no_data": "#f0f0f0",
-        },
-    )
+    process_colors = kwargs.get("process_colors", PROCESS_COLORS)
     figsize = kwargs.get("figsize", getattr(subject.plot_cfg, "figsize", (10, 8)))
     dpi = kwargs.get("dpi", subject.plot_cfg.dpi)
     label_fs = kwargs.get("label_fs", 15)
@@ -1663,21 +1616,7 @@ def plot_classified_processes_on_hexagram(
     hex_assets = get_hexagram_assets(k=k)
     img = np.asarray(hex_assets["img"], float)
 
-    process_colors = kwargs.get(
-        "process_colors",
-        {
-            "breakup": "#d95f02",
-            "growth_depletion": "#1b9e77",
-            "growth_depletion_gain": "#7570b3",
-            "growth_depletion_loss": "#6a3d9a",
-            "evaporation": "#7570b3",
-            "growth": "#e7298a",
-            "activation": "#66a61e",
-            "steady_or_weak": "#bdbdbd",
-            "unknown": "#666666",
-            "no_data": "#d9d9d9",
-        },
-    )
+    process_colors = kwargs.get("process_colors", PROCESS_COLORS)
 
     if processes is not None:
         for selected_processes in processes:
@@ -1765,3 +1704,4 @@ def plot_classified_processes_on_hexagram(
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
     return fig, filepath
+

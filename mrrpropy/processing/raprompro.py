@@ -726,26 +726,6 @@ def process_raprompro(
     return out
 
 
-def process_raprompro_optimized(
-    subject: SupportsRaprompro,
-    *,
-    adjust_m: float = 1.0,
-    save_spe_3d: bool = False,
-    save_dsd_3d: bool = False,
-    save: bool = False,
-    **kwargs: Any,
-) -> xr.Dataset:
-    """Compatibility alias for :func:`process_raprompro`."""
-    return process_raprompro(
-        subject,
-        adjust_m=adjust_m,
-        save_spe_3d=save_spe_3d,
-        save_dsd_3d=save_dsd_3d,
-        save=save,
-        **kwargs,
-    )
-
-
 def load_raprompro(
     subject: SupportsRaprompro,
     path: str | Path,
@@ -770,15 +750,18 @@ def load_raprompro(
     Parameters
     ----------
     path : str | Path
-        Ruta al fichero *_raprompro.nc (p.ej. '20250308_120000_raprompro.nc').
+        Path to the ``*_raprompro.nc`` file, for example
+        ``20250308_120000_raprompro.nc``.
     chunks : "auto" | dict | None
-        Si no es None, abre en modo dask (lazy) para acelerar I/O y evitar cargar todo a RAM.
+        If not None, open lazily with dask to speed up I/O and avoid
+        loading the full dataset into memory.
     validate : bool
-        Si True, comprueba que el dataset tiene dims/coords esperadas y que encaja con subject.ds.
+        If True, check that the dataset has the expected dimensions and
+        coordinates and matches ``subject.ds``.
     required_vars : tuple[str, ...]
-        Variables mínimas que deben existir en el dataset procesado.
+        Minimum variables expected in the processed dataset.
     assign : bool
-        Si True, guarda el dataset en subject.raprompro.
+        If True, store the dataset in ``subject.raprompro``.
 
     Returns
     -------
@@ -788,24 +771,24 @@ def load_raprompro(
     """
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(f"No existe el fichero: {path}")
+        raise FileNotFoundError(f"File does not exist: {path}")
 
     ds_rp = xr.open_dataset(path, chunks=chunks)
 
     if validate:
-        # 1) Dims/coords mínimas
+        # 1) Minimum dimensions/coordinates
         for c in ("time", "range"):
             if c not in ds_rp.coords:
                 raise ValueError(
-                    f"El raprompro cargado no tiene coord '{c}'. "
+                    f"Loaded raprompro product does not have coord {c!r}. "
                     f"coords={list(ds_rp.coords)}"
                 )
 
-        # 2) Variables mínimas (heurística simple)
+        # 2) Minimum variables (simple heuristic)
         missing = [v for v in required_vars if v not in ds_rp.data_vars]
         if missing:
             raise ValueError(
-                f"El raprompro cargado no parece un output válido: faltan {missing}. "
+                f"Loaded raprompro product does not look valid: missing {missing}. "
                 f"vars={list(ds_rp.data_vars)}"
             )
         velocity_convention = str(ds_rp.attrs.get("velocity_convention", ""))

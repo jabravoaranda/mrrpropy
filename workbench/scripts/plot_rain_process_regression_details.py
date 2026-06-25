@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 matplotlib.use("Agg")
 

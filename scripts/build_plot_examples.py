@@ -15,9 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from mrrpropy.hexagram import plot_process_to_hexagram
-from mrrpropy.plotting.processes import plot_fused_process_quicklook
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -89,7 +87,7 @@ class PlotContext:
     @property
     def scan_df(self) -> pd.DataFrame:
         if self._scan_df is None:
-            self._scan_df = self.mrr.build_column_process_scan_dataframe(
+            self._scan_df = self.mrr.build_sliding_process_dataframe(
                 period=PERIOD,
                 k=11,
                 window_thickness_m=500.0,
@@ -170,17 +168,19 @@ def _fused_df_from_scan(scan_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def quicklook_raw(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.quicklook(variable="Ze", source="raw", vmin=-10, vmax=40)
+    fig, _ = ctx.mrr.plot.quicklook(variable="Ze", source="raw", vmin=-10, vmax=40)
     return _save(fig, output_dir, "quicklook_raw_ze.png")
 
 
 def quicklook_raprompro(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.quicklook(variable="Ze", source="raprompro", vmin=-10, vmax=40)
+    fig, _ = ctx.mrr.plot.quicklook(
+        variable="Ze", source="raprompro", vmin=-10, vmax=40
+    )
     return _save(fig, output_dir, "quicklook_raprompro_ze.png")
 
 
 def plot_spectrum(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_spectrum(
+    fig, _ = ctx.mrr.plot.spectrum(
         TARGET_TIME,
         ctx.target_range,
         spectrum_var="spectrum_raw",
@@ -194,27 +194,27 @@ def plot_spectra_by_range(ctx: PlotContext, output_dir: Path) -> Path:
         .values[[5, ctx.mrr.ds.sizes["range"] // 2, -5]]
         .astype(float)
     )
-    fig, _ = ctx.mrr.plot_spectra_by_range(TARGET_TIME, ranges)
+    fig, _ = ctx.mrr.plot.spectra_by_range(TARGET_TIME, ranges)
     return _save(fig, output_dir, "plot_spectra_by_range.png")
 
 
 def plot_spectrogram_raw(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_spectrogram(TARGET_TIME, spectrum_var="spectrum_raw")
+    fig, _ = ctx.mrr.plot.spectrogram(TARGET_TIME, spectrum_var="spectrum_raw")
     return _save(fig, output_dir, "plot_spectrogram_raw.png")
 
 
 def plot_spectrogram_raprompro(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_spectrogram(TARGET_TIME, spectrum_var="spe_3D")
+    fig, _ = ctx.mrr.plot.spectrogram(TARGET_TIME, spectrum_var="spe_3D")
     return _save(fig, output_dir, "plot_spectrogram_raprompro.png")
 
 
 def plot_dsdgram(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_DSDgram(target_datetime=TARGET_TIME)
+    fig, _ = ctx.mrr.plot.dsdgram(target_datetime=TARGET_TIME)
     return _save(fig, output_dir, "plot_dsdgram.png")
 
 
 def plot_dsd_by_range(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_DSD_by_range(
+    fig, _ = ctx.mrr.plot.dsd_by_range(
         TARGET_TIME,
         ranges=np.arange(500, 2500, 250),
     )
@@ -222,14 +222,12 @@ def plot_dsd_by_range(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_microphysical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _, _ = ctx.mrr.plot_microphysical_properties_profiles(
-        target_datetime=TARGET_TIME
-    )
+    fig, _, _ = ctx.mrr.plot.microphysical_profiles(target_datetime=TARGET_TIME)
     return _save(fig, output_dir, "plot_microphysical_properties_profiles.png")
 
 
 def plot_rain_process_2d(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_rain_process_in_layer_2D(
+    fig, _ = ctx.mrr.plot.rain.layer_2d(
         target_datetime=PERIOD,
         layer=LAYER,
         x="Dm",
@@ -243,7 +241,7 @@ def plot_rain_process_2d(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_event_scatter(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_event_scatter(
+    fig, _ = ctx.mrr.plot.rain.event_scatter(
         target_datetime=PERIOD,
         layer=LAYER,
         x="Dm",
@@ -256,7 +254,7 @@ def plot_event_scatter(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_region_scatter(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_region_scatter(
+    fig, _ = ctx.mrr.plot.rain.region_scatter(
         target_datetime=PERIOD,
         z_bottom_m=LAYER[0],
         z_top_m=LAYER[1],
@@ -272,7 +270,7 @@ def plot_region_scatter(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_process_scatter(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_process_scatter(
+    fig, _ = ctx.mrr.plot.rain.process_scatter(
         classified=ctx.fixed_classified,
         process=ctx.representative_process,
         target_datetime=PERIOD,
@@ -287,7 +285,7 @@ def plot_process_scatter(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_event_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_event_vertical_percent_profiles(
+    fig, _ = ctx.mrr.plot.rain.event_vertical_profiles(
         target_datetime=PERIOD,
         layer=LAYER,
         variables=("Dm", "Nw", "LWC"),
@@ -297,7 +295,7 @@ def plot_event_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_process_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_process_vertical_percent_profiles(
+    fig, _ = ctx.mrr.plot.rain.process_vertical_profiles(
         classified=ctx.fixed_classified,
         process=ctx.representative_process,
         target_datetime=PERIOD,
@@ -309,7 +307,7 @@ def plot_process_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_layer_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_rain_process_in_layer_hexagram(
+    fig, _ = ctx.mrr.plot.rain.layer_hexagram(
         analysis=ctx.fixed_analysis,
         alpha_hexagram=0.5,
         cmap="viridis",
@@ -318,7 +316,7 @@ def plot_layer_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_processes_evolution(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_processes_evolution(
+    fig, _ = ctx.mrr.plot.rain.evolution(
         classified=ctx.fixed_classified,
         analysis=ctx.fixed_analysis,
         figsize=(14, 10),
@@ -331,7 +329,7 @@ def plot_processes_evolution(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_classified_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_classified_processes_on_hexagram(
+    fig, _ = ctx.mrr.plot.rain.classified_hexagram(
         classified=ctx.fixed_classified,
         analysis=ctx.fixed_analysis,
         show_background=True,
@@ -346,7 +344,7 @@ def plot_classified_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_column_process_scan(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_column_process_scan(
+    fig, _ = ctx.mrr.plot.rain.column_scan(
         scan_df=ctx.scan_df,
         figsize=(10, 6),
     )
@@ -361,7 +359,7 @@ def plot_scan_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
             if label not in {"unknown", "no_data", "steady_or_weak"}
         }
     )[:2]
-    fig, _ = ctx.mrr.plot_scan_process_scatter_compare(
+    fig, _ = ctx.mrr.plot.rain.scan_scatter_compare(
         scan_df=ctx.scan_df,
         processes=selected or None,
         show_centroids=True,
@@ -372,7 +370,7 @@ def plot_scan_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
 
 def plot_fused_quicklook(ctx: PlotContext, output_dir: Path) -> Path:
     fused_df = _fused_df_from_scan(ctx.scan_df)
-    fig, _ = plot_fused_process_quicklook(
+    fig, _ = ctx.mrr.plot.rain.fused_quicklook(
         ctx.scan_df,
         fused_df,
         processes=QUICKLOOK_PROCESSES,
@@ -382,7 +380,7 @@ def plot_fused_quicklook(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_hexagram_process(ctx: PlotContext, output_dir: Path) -> Path:
-    fig = plot_process_to_hexagram(
+    fig = ctx.mrr.plot.rain.process_mask_hexagram(
         process="activation",
         k=11,
         tol_center=0.15,

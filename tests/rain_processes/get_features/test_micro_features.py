@@ -1,17 +1,17 @@
 import numpy as np
 import xarray as xr
 
-from mrrpropy.analysis.processes import (
-    classify_process_from_features,
+from mrrpropy.analysis.rain_processes_classification import (
+    classify_rain_process_features,
     classify_rain_process,
 )
-from mrrpropy.analysis.process_features import (
-    build_process_features,
-    get_microphysical_features,
+from mrrpropy.analysis.rain_process_features import (
+    build_rain_process_features,
+    get_microphysical_process_features,
 )
 
 
-def test_get_microphysical_features_fixed_layer_simple_profile():
+def test_get_microphysical_process_features_fixed_layer_simple_profile():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -26,7 +26,7 @@ def test_get_microphysical_features_fixed_layer_simple_profile():
     z_bottom = xr.DataArray(0.0)
     z_center = xr.DataArray(100.0)
 
-    features = get_microphysical_features(
+    features = get_microphysical_process_features(
         ds,
         mode="fixed_layer",
         z_top=z_top,
@@ -47,7 +47,7 @@ def test_get_microphysical_features_fixed_layer_simple_profile():
     assert str(features["micro_signature_str"].values[0]) == "+,+,+"
 
 
-def test_get_microphysical_features_scan_uses_z_center_as_layer_coord():
+def test_get_microphysical_process_features_scan_uses_z_center_as_layer_coord():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -64,7 +64,7 @@ def test_get_microphysical_features_scan_uses_z_center_as_layer_coord():
     z_bottom = xr.DataArray(np.array([0.0, 200.0], dtype=float), dims=("layer",))
     z_center = xr.DataArray(np.array([50.0, 250.0], dtype=float), dims=("layer",))
 
-    features = get_microphysical_features(
+    features = get_microphysical_process_features(
         ds,
         mode="scan",
         z_top=z_top,
@@ -104,9 +104,9 @@ def _synthetic_full_ds():
     return ds
 
 
-def test_build_process_features_fixed_layer_integration():
+def test_build_rain_process_features_fixed_layer_integration():
     ds = _synthetic_full_ds()
-    pf = build_process_features(
+    pf = build_rain_process_features(
         ds,
         mode="fixed_layer",
         fixed_layer_top_m=300.0,
@@ -143,9 +143,9 @@ def test_build_process_features_fixed_layer_integration():
     assert pf["overlaps_bb"].dtype == bool
 
 
-def test_build_process_features_scan_integration():
+def test_build_rain_process_features_scan_integration():
     ds = _synthetic_full_ds()
-    pf = build_process_features(
+    pf = build_rain_process_features(
         ds,
         mode="scan",
         window_thickness_m=200.0,
@@ -184,9 +184,9 @@ def test_build_process_features_scan_integration():
     assert pf["overlaps_bb"].dtype == bool
 
 
-def test_classify_process_from_features_fixed_layer_activation():
+def test_classify_rain_process_features_fixed_layer_activation():
     ds = _synthetic_full_ds()
-    pf = build_process_features(
+    pf = build_rain_process_features(
         ds,
         mode="fixed_layer",
         fixed_layer_top_m=300.0,
@@ -195,7 +195,7 @@ def test_classify_process_from_features_fixed_layer_activation():
         bb_peak_m=50.0,
         bb_top_m=90.0,
     )
-    classified = classify_process_from_features(pf)
+    classified = classify_rain_process_features(pf)
 
     assert dict(classified.sizes) == {"time": 1}
     assert "layer" not in classified.dims
@@ -208,9 +208,9 @@ def test_classify_process_from_features_fixed_layer_activation():
     assert float(classified["strength"].values[0]) == 1.0
 
 
-def test_classify_process_from_features_scan_activation():
+def test_classify_rain_process_features_scan_activation():
     ds = _synthetic_full_ds()
-    pf = build_process_features(
+    pf = build_rain_process_features(
         ds,
         mode="scan",
         window_thickness_m=200.0,
@@ -219,7 +219,7 @@ def test_classify_process_from_features_scan_activation():
         bb_peak_m=50.0,
         bb_top_m=90.0,
     )
-    classified = classify_process_from_features(pf)
+    classified = classify_rain_process_features(pf)
 
     assert dict(classified.sizes) == {"time": 1, "layer": 2}
     labels = classified["proc_label"].values.astype(str).reshape((-1,))
@@ -243,3 +243,4 @@ def test_classify_rain_process_canonical_does_not_require_rgb_mapping():
 
     classified = classify_rain_process(None, analysis=analysis)
     assert str(classified["proc_label"].values[0]) == "activation"
+

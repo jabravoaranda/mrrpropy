@@ -9,7 +9,10 @@ import numpy as np
 from numpy.typing import NDArray
 import xarray as xr
 
-from mrrpropy.processes import PROCESS_CODES, PROCESS_MARKERS, PROCESS_SIGNATURES, ProcessSignature
+from mrrpropy.rain_process_info import PROCESS_SIGNATURES
+
+# TODO: Split this module when hexagram work grows again. Natural boundaries:
+# RGB trend mapping, hexagram grid/assets, RGB-to-cell mapping, and process masks.
 
 FloatArray: TypeAlias = NDArray[np.float64]
 Float32Array: TypeAlias = NDArray[np.float32]
@@ -31,16 +34,13 @@ def build_rgb_from_trends(
     time_dim: str = "time",
     vars: tuple[str, str, str] = ("b_Dm", "b_Nw", "b_LWC"),
     q: float = 0.02,
-    per_hour: bool = False,
 ) -> xr.Dataset:
     """
-    Convierte tres series (con signo) a canales RGB en [0,1], con 0.5 = 0.
-    Normalización robusta por cuantiles simétricos.
+    Convert three signed series into RGB channels in [0, 1], with 0.5 as zero.
+    Robust normalization uses symmetric quantiles.
 
-    vars: nombres en ds para (R,G,B) en ese orden.
-    q: cuantil para escala robusta (ej. 0.02 => recorta 2% extremos).
-    per_hour: si True, calcula la escala por cada instante (solo tiene sentido si ds tiene sub-sampling dentro de la hora;
-              si cada fichero es 1 hora con múltiples timestamps, funcionará; si es 1 timestamp/hora, per_hour no aporta).
+    vars: variable names in ds for (R, G, B), in that order.
+    q: robust scale quantile, e.g. 0.02 clips the outer 2%.
     """
     vR = ds[vars[0]].values.astype(float)
     vG = ds[vars[1]].values.astype(float)
@@ -57,14 +57,13 @@ def build_rgb_from_trends(
 
     def _to_unit(v, s):
         if not np.isfinite(s) or s <= 0:
-            # si no hay escala (todo ~0), devolvemos 0.5 cuando v es finito, NaN si no
+            # If no scale exists (all values near zero), return 0.5 for finite values and NaN otherwise.
             out = np.full_like(v, np.nan, dtype=float)
             out[np.isfinite(v)] = 0.5
             return out
         x = np.clip(v / s, -1.0, 1.0)
         return 0.5 * (x + 1.0)
 
-    # En tu caso habitual, per_hour=False (escala global del evento/capa).
     sR = _scale_global(vR)
     sG = _scale_global(vG)
     sB = _scale_global(vB)
@@ -141,6 +140,7 @@ def build_rgb_from_unit_scores(
 def generate_rgb_hex(
     k: int,
     save: bool = False,
+    verbose: bool = False,
     r_file: str | Path = "rw_hex_test_d.csv",
     g_file: str | Path = "gw_hex_test_d.csv",
     b_file: str | Path = "bw_hex_test_d.csv",
@@ -165,26 +165,26 @@ def generate_rgb_hex(
     b_hex[c, c] = 1.0
     num_hex[c, c] = 0.0
 
-    # File output (stub - replace with actual saving as needed)
-    print(f"grid size : {N}")
-    print(f"center pos: {m + 1}")
-    print("RGB pos for Green:")
-    print(f"R: {m + 1}, {N - k}")
-    print(f"G: {k + 1}, {m + 1}")
-    print(f"B: {N - k}, {k + 1}")
-    print("CYM pos:")
-    print(f"C: {m + 1}, {k + 1}")
-    print(f"Y: {k + 1}, {N - k}")
-    print(f"M: {N - k}, {m + 1}")
-    print("----")
-    print(f"basic RGB-W grid num: {k}")
-    print(f"one-cycle grid num  : {(k + 1) * 6}")
-    print(f"max-cycle grid num  : {(2 * k + 1) * 6}")
-    print(f"changing ratio      : {255.0 / (k + 1)}")
-    print(f"min changing ratio  : {255.0 / (2 * k + 1)}")
-    print("----")
-    print("sample grid cycle")
-    print("R->Y->G->C->B->M->...")
+    if verbose:
+        print(f"grid size : {N}")
+        print(f"center pos: {m + 1}")
+        print("RGB pos for Green:")
+        print(f"R: {m + 1}, {N - k}")
+        print(f"G: {k + 1}, {m + 1}")
+        print(f"B: {N - k}, {k + 1}")
+        print("CYM pos:")
+        print(f"C: {m + 1}, {k + 1}")
+        print(f"Y: {k + 1}, {N - k}")
+        print(f"M: {N - k}, {m + 1}")
+        print("----")
+        print(f"basic RGB-W grid num: {k}")
+        print(f"one-cycle grid num  : {(k + 1) * 6}")
+        print(f"max-cycle grid num  : {(2 * k + 1) * 6}")
+        print(f"changing ratio      : {255.0 / (k + 1)}")
+        print(f"min changing ratio  : {255.0 / (2 * k + 1)}")
+        print("----")
+        print("sample grid cycle")
+        print("R->Y->G->C->B->M->...")
 
     
     # main loop of r_hex
@@ -698,9 +698,19 @@ def generate_rgb_hex(
                 writer.writerow(num_hex[:, i])
     num_hex = num_hex.T
 
-    print("rgb_hex shape:",g_hex.shape)
-    print("----")
-    print("output_filename-> r_file:",r_file,", g_file:",g_file,", b_file:",b_file,"n_file",n_file)
+    if verbose:
+        print("rgb_hex shape:", g_hex.shape)
+        print("----")
+        print(
+            "output_filename-> r_file:",
+            r_file,
+            ", g_file:",
+            g_file,
+            ", b_file:",
+            b_file,
+            "n_file",
+            n_file,
+        )
     
     return r_hex, g_hex, b_hex, num_hex
 
@@ -774,10 +784,10 @@ def map_rgb_to_hexagram(
 
 def _component_mask(values: FloatArray, sign: int, tol_center: float) -> BoolArray:
     """
-    Devuelve máscara booleana para una componente RGB según el signo:
-      -1 -> baja     : value < 0.5 - tol_center
-       0 -> central  : |value - 0.5| <= tol_center
-      +1 -> alta     : value > 0.5 + tol_center
+    Return the boolean mask for one RGB component according to the sign:
+      -1 -> low     : value < 0.5 - tol_center
+       0 -> centered: |value - 0.5| <= tol_center
+      +1 -> high    : value > 0.5 + tol_center
     """
     if sign == -1:
         return values < (0.5 - tol_center)
@@ -786,7 +796,7 @@ def _component_mask(values: FloatArray, sign: int, tol_center: float) -> BoolArr
     if sign == +1:
         return values > (0.5 + tol_center)
 
-    raise ValueError(f"sign debe ser -1, 0 o +1; recibido: {sign}")
+    raise ValueError(f"sign must be -1, 0 or +1; got: {sign}")
 
 
 def get_process_hexagram_mask(
@@ -797,37 +807,36 @@ def get_process_hexagram_mask(
     valid_threshold: float = -0.5,
 ) -> tuple[BoolArray, HexagramAssets]:
     """
-    Devuelve la máscara 2D del hexagrama correspondiente a un proceso.
+    Return the 2D hexagram mask corresponding to a rain process.
 
-    Esta versión admite que PROCESS_SIGNATURES[process] sea:
-      - una única firma:        (-1, +1, 0)
-      - varias firmas válidas: [(-1, -1, -1), (-1, -1, 0), (-1, 0, -1)]
+    ``PROCESS_SIGNATURES[process]`` may contain either a single signature, such
+    as ``(-1, +1, 0)``, or several valid signatures.
 
     Parameters
     ----------
     process : str
-        Nombre del proceso ('breakup', 'growth_depletion', 'evaporation',
-        'growth', 'activation', ...).
+        Process name, e.g. ``breakup``, ``growth_depletion``, ``evaporation``,
+        ``growth`` or ``activation``.
     k : int
-        Parámetro del hexagrama.
+        Hexagram parameter.
     tol_center : float, optional
-        Tolerancia alrededor de 0.5 para la banda central.
+        Tolerance around 0.5 for the centered RGB band.
     valid_threshold : float, optional
-        Umbral que se pasa a get_hexagram_assets.
+        Threshold passed to ``get_hexagram_assets``.
 
     Returns
     -------
     mask2d : np.ndarray
-        Máscara booleana 2D con True en las celdas del proceso.
+        2D boolean mask with True on the process cells.
     hex_assets : dict
-        Diccionario devuelto por get_hexagram_assets.
+        Dictionary returned by ``get_hexagram_assets``.
     """
     if process not in PROCESS_SIGNATURES:
         valid = ", ".join(PROCESS_SIGNATURES.keys())
-        raise ValueError(f"Proceso desconocido: {process!r}. Válidos: {valid}")
+        raise ValueError(f"Unknown process: {process!r}. Valid values: {valid}")
 
     if not isinstance(k, int) or k <= 0:
-        raise ValueError("k debe ser un entero positivo.")
+        raise ValueError("k must be a positive integer.")
 
     hex_assets = get_hexagram_assets(k=k, valid_threshold=valid_threshold)
 
@@ -837,46 +846,45 @@ def get_process_hexagram_mask(
 
     if rgb_cells.ndim != 2 or rgb_cells.shape[1] != 3:
         raise ValueError(
-            f"hex_assets['rgb_cells'] debe tener shape (n, 3), no {rgb_cells.shape}"
+            f"hex_assets['rgb_cells'] must have shape (n, 3), got {rgb_cells.shape}"
         )
     if yx_cells.ndim != 2 or yx_cells.shape[1] != 2:
         raise ValueError(
-            f"hex_assets['yx_cells'] debe tener shape (n, 2), no {yx_cells.shape}"
+            f"hex_assets['yx_cells'] must have shape (n, 2), got {yx_cells.shape}"
         )
 
-    R = rgb_cells[:, 0]
-    G = rgb_cells[:, 1]
-    B = rgb_cells[:, 2]
+    red = rgb_cells[:, 0]
+    green = rgb_cells[:, 1]
+    blue = rgb_cells[:, 2]
 
-    signatures = PROCESS_SIGNATURES[process]
-    sig_def = signatures
+    signature_definition = PROCESS_SIGNATURES[process]
 
-    # Normalizar a lista de firmas [(sR,sG,sB), ...]
-    if isinstance(sig_def, tuple) and len(sig_def) == 3:
-        signatures = [tuple(int(v) for v in sig_def)]
-    elif isinstance(sig_def, (list, tuple)):
+    if isinstance(signature_definition, tuple) and len(signature_definition) == 3:
+        signatures = [tuple(int(value) for value in signature_definition)]
+    elif isinstance(signature_definition, (list, tuple)):
         signatures = []
-        for item in sig_def:
+        for item in signature_definition:
             if not (isinstance(item, (list, tuple)) and len(item) == 3):
                 raise ValueError(
-                    f"Firma inválida para proceso {process!r}: {item!r}. "
-                    "Cada firma debe ser una tupla/lista de 3 enteros."
+                    f"Invalid signature for process {process!r}: {item!r}. "
+                    "Each signature must be a 3-integer tuple/list."
                 )
             signatures.append((int(item[0]), int(item[1]), int(item[2])))
     else:
         raise ValueError(
-            f"PROCESS_SIGNATURES[{process!r}] no tiene un formato válido: {sig_def!r}"
+            f"PROCESS_SIGNATURES[{process!r}] has an invalid format: "
+            f"{signature_definition!r}"
         )
 
-    mask_total = np.zeros_like(R, dtype=bool)
+    mask_total = np.zeros_like(red, dtype=bool)
 
-    for sR, sG, sB in signatures:
-        m = (
-            _component_mask(R, sR, tol_center)
-            & _component_mask(G, sG, tol_center)
-            & _component_mask(B, sB, tol_center)
+    for sign_red, sign_green, sign_blue in signatures:
+        mask = (
+            _component_mask(red, sign_red, tol_center)
+            & _component_mask(green, sign_green, tol_center)
+            & _component_mask(blue, sign_blue, tol_center)
         )
-        mask_total |= m
+        mask_total |= mask
 
     mask2d = np.zeros(img.shape[:2], dtype=bool)
     if np.any(mask_total):
@@ -909,46 +917,46 @@ def plot_process_to_hexagram(
     dpi: int = 200,
 ) -> tuple[plt.Figure, Path | None] | plt.Figure:
     """
-    Pinta el espacio del hexagrama correspondiente a un proceso microfísico.
+    Plot the hexagram region corresponding to a microphysical process.
 
     Parameters
     ----------
     process : str
-        Nombre del proceso.
+        Process name.
     k : int
-        Parámetro del hexagrama.
+        Hexagram parameter.
     tol_center : float, optional
-        Tolerancia de la banda central en RGB.
+        Tolerance of the centered RGB band.
     valid_threshold : float, optional
-        Umbral pasado a get_hexagram_assets.
+        Threshold passed to ``get_hexagram_assets``.
     figsize : tuple, optional
-        Tamaño de figura.
+        Figure size.
     show_background : bool, optional
-        Si True, muestra el hexagrama RGB completo de fondo.
+        If True, show the full RGB hexagram as the background.
     alpha_hexagram : float, optional
-        Transparencia del hexagrama de fondo.
+        Background hexagram transparency.
     alpha_process : float, optional
-        Transparencia del overlay del proceso.
+        Process overlay transparency.
     process_color : tuple or None, optional
-        Color fijo RGB para pintar el proceso. Si es None, se usan los colores
-        reales de cada celda del hexagrama.
+        Fixed RGB color for the process. If None, use the real color of each
+        selected hexagram cell.
     show_cell_centers : bool, optional
-        Si True, superpone marcadores en los centros de las celdas seleccionadas.
+        If True, overlay markers at the selected cell centers.
     title : str or None, optional
-        Título personalizado.
+        Custom title.
     savefig : bool, optional
-        Si True, guarda la figura.
+        If True, save the figure.
     output_dir : str | Path | None, optional
-        Carpeta de salida si savefig=True.
+        Output directory when ``savefig=True``.
     dpi : int, optional
-        Resolución de guardado.
+        Save resolution.
 
     Returns
     -------
     fig : matplotlib.figure.Figure
-        Figura creada.
+        Created figure.
     filepath : pathlib.Path, optional
-        Solo si savefig=True.
+        Only returned when ``savefig=True``.
     """
     mask2d, hex_assets = get_process_hexagram_mask(
         process,
@@ -973,7 +981,7 @@ def plot_process_to_hexagram(
             alpha=alpha_hexagram,
         )
 
-    # Overlay RGBA del proceso
+    # RGBA overlay for the process
     overlay = np.zeros((ny, nx, 4), dtype=float)
 
     ys, xs = np.where(mask2d)

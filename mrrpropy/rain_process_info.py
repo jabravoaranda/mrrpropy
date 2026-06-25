@@ -43,3 +43,31 @@ PROCESS_MARKERS: dict[str, str] = {
     "unknown": ".",
     "no_data": ".",
 }
+
+
+PROCESS_COLORS: dict[str, str] = {
+    "breakup": "#12af54",
+    "growth_depletion": "#1b9e77",
+    "growth_depletion_gain": "#f808d0",
+    "growth_depletion_loss": "#ff0000",
+    "evaporation": "#000000",
+    "growth": "#91209b",
+    "activation": "#66a61e",
+    "steady_or_weak": "#bdbdbd",
+    "unknown": "#666666",
+    "no_data": "#f0f0f0",
+}
+
+
+PROCESS_PLOT_ORDER: tuple[str, ...] = (
+    "unknown",
+    "evaporation",
+    "breakup",
+    "growth_depletion",
+    "growth_depletion_gain",
+    "growth_depletion_loss",
+    "growth",
+    "activation",
+    "steady_or_weak",
+    "no_data",
+)

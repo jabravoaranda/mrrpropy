@@ -1,10 +1,10 @@
 import numpy as np
 import xarray as xr
 
-from mrrpropy.analysis.process_features import get_context
+from mrrpropy.analysis.rain_process_features import get_rain_process_context_features
 
 
-def test_get_context_fixed_layer_simple():
+def test_get_rain_process_context_features_fixed_layer_simple():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -17,7 +17,7 @@ def test_get_context_fixed_layer_simple():
     z_bottom = xr.DataArray(0.0)
     z_center = xr.DataArray(100.0)
 
-    features = get_context(
+    features = get_rain_process_context_features(
         ds,
         mode="fixed_layer",
         z_top=z_top,
@@ -35,7 +35,7 @@ def test_get_context_fixed_layer_simple():
     assert float(features["dist_bb_peak"].values[0]) == 0.0
 
 
-def test_get_context_scan_uses_z_center_as_layer_coord():
+def test_get_rain_process_context_features_scan_uses_z_center_as_layer_coord():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -48,7 +48,7 @@ def test_get_context_scan_uses_z_center_as_layer_coord():
     z_bottom = xr.DataArray(np.array([0.0, 200.0], dtype=float), dims=("layer",))
     z_center = xr.DataArray(np.array([50.0, 250.0], dtype=float), dims=("layer",))
 
-    features = get_context(
+    features = get_rain_process_context_features(
         ds,
         mode="scan",
         z_top=z_top,

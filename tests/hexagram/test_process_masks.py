@@ -1,21 +1,21 @@
 import matplotlib
 import pytest
 
-from mrrpropy.hexagram import PROCESS_SIGNATURES, plot_process_to_hexagram
+from mrrpropy.rain_process_info import PROCESS_SIGNATURES
 
 matplotlib.use("Agg")
 
-pytestmark = [pytest.mark.slow, pytest.mark.plot]
+pytestmark = [pytest.mark.slow]
 
 
-def test_plot_hexagram_process(artifact_dir):
+def test_plot_hexagram_process(raw_mrr, product_dir):
     for process_ in PROCESS_SIGNATURES:
-        fig, filepath = plot_process_to_hexagram(
+        fig, filepath = raw_mrr.plot.rain.process_mask_hexagram(
             process=process_,
             k=11,
             tol_center=0.15,
             savefig=True,
-            output_dir=artifact_dir,
+            output_dir=product_dir,
             crop_to_process=False,
         )
 

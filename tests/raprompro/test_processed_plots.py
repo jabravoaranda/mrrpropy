@@ -12,15 +12,15 @@ from mrrpropy.plotting import _spectra
 
 matplotlib.use("Agg")
 
-pytestmark = [pytest.mark.slow, pytest.mark.plot, pytest.mark.integration]
+pytestmark = [pytest.mark.slow]
 
 
 def test_transmittance_correction_increases_reflectivity_when_pia_applies(
-    raprompro_subset_10min_loaded_mrr, artifact_dir
+    raprompro_mrr, product_dir
 ):
     pytest.importorskip("matplotlib")
 
-    ds = raprompro_subset_10min_loaded_mrr.raprompro
+    ds = raprompro_mrr.raprompro
     assert ds is not None
 
     ze = ds["Ze"].values.astype(float)
@@ -61,7 +61,7 @@ def test_transmittance_correction_increases_reflectivity_when_pia_applies(
     ax.set_ylabel("Ze - Zea [dB]")
     ax.set_title("PIA correction consistency for liquid hydrometeors")
     fig.tight_layout()
-    fig.savefig(artifact_dir / "transmittance_correction_consistency.png", dpi=150)
+    fig.savefig(product_dir / "transmittance_correction_consistency.png", dpi=150)
 
     assert isinstance(fig, Figure)
     assert isinstance(ax, Axes)
@@ -84,23 +84,17 @@ def test_transmittance_correction_increases_reflectivity_when_pia_applies(
     ax.set_xlabel("Time")
     ax.set_ylabel("Range [m]")
     fig.tight_layout()
-    fig.savefig(artifact_dir / "transmittance_correction_quicklook.png", dpi=150)
+    fig.savefig(product_dir / "transmittance_correction_quicklook.png", dpi=150)
     plt.close(fig)
 
 
-def test_plot_microphysical_properties_profiles_runs(
-    raprompro_subset_10min_loaded_mrr, artifact_dir
-):
+def test_plot_microphysical_properties_profiles_runs(raprompro_mrr, product_dir):
     pytest.importorskip("matplotlib")
 
-    (
-        fig,
-        axs,
-        filepath,
-    ) = raprompro_subset_10min_loaded_mrr.plot_microphysical_properties_profiles(
+    (fig, axs, filepath,) = raprompro_mrr.plot.microphysical_profiles(
         target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
         dpi=120,
     )
 
@@ -112,14 +106,14 @@ def test_plot_microphysical_properties_profiles_runs(
     plt.close(fig)
 
 
-def test_plot_dealiased_spectrogram(raprompro_subset_10min_loaded_mrr, artifact_dir):
+def test_plot_dealiased_spectrogram(raprompro_mrr, product_dir):
     pytest.importorskip("matplotlib")
 
-    fig, filepath = raprompro_subset_10min_loaded_mrr.plot_spectrogram(
+    fig, filepath = raprompro_mrr.plot.spectrogram(
         target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
         spectrum_var="spe_3D",
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
         dpi=120,
     )
 
@@ -168,13 +162,13 @@ def test_dealiased_spectrogram_converts_legacy_positive_downward_speed():
     assert np.allclose(spec2d[0], np.array([40.0, 30.0, 20.0, 10.0]))
 
 
-def test_plot_dsdgram(raprompro_subset_10min_loaded_mrr, artifact_dir):
+def test_plot_dsdgram(raprompro_mrr, product_dir):
     pytest.importorskip("matplotlib")
 
-    fig, filepath = raprompro_subset_10min_loaded_mrr.plot_DSDgram(
+    fig, filepath = raprompro_mrr.plot.dsdgram(
         target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
         dpi=120,
     )
 
@@ -184,12 +178,12 @@ def test_plot_dsdgram(raprompro_subset_10min_loaded_mrr, artifact_dir):
     plt.close(fig)
 
 
-def test_plot_dsd_by_range(raprompro_subset_10min_loaded_mrr, artifact_dir):
-    fig, filepath = raprompro_subset_10min_loaded_mrr.plot_DSD_by_range(
+def test_plot_dsd_by_range(raprompro_mrr, product_dir):
+    fig, filepath = raprompro_mrr.plot.dsd_by_range(
         target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
         ranges=np.arange(500, 2500, 250),
         savefig=True,
-        output_dir=artifact_dir,
+        output_dir=product_dir,
         dpi=120,
     )
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import matplotlib
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 matplotlib.use("Agg")
 
@@ -39,7 +39,7 @@ def plot_file_quicklooks(
         print(f"[file] {file_path.name}")
         for variable in variable_names:
             try:
-                fig, _ = mrr.quicklook(variable=variable, source="raw")
+                fig, _ = mrr.plot.quicklook(variable=variable, source="raw")
                 png_name = f"{file_path.stem}_{variable}.png"
                 png_path = output_dir / png_name
                 fig.savefig(png_path, dpi=150, bbox_inches="tight")

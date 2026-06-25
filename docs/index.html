@@ -54,13 +54,13 @@
     <section class="card">
       <h2>Quick start</h2>
       <p>
-        The public API is centered on <code>mrrpropy.raw_class.MRRProData</code>.
+        The public API is centered on <code>mrrpropy.dataset.MRRProData</code>.
         A typical workflow is to open a raw file, load or compute the processed
         product, and plot one diagnostic field.
       </p>
       <pre><code>from pathlib import Path
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 raw_path = Path("tests/data/RAW/mrrpro81/2025/03/08/20250308_120000_10min.nc")
 processed_path = Path("tests/data/PRODUCTS/mrrpro81/2025/03/08/20250308_120000_10min_raprompro.nc")
@@ -73,7 +73,7 @@ mrr.load_raprompro(processed_path)
 # Alternatively, generate a processed dataset into PRODUCTS/
 # mrr.process_raprompro(save=False)
 
-fig, ax = mrr.quicklook(variable="Ze", source="raprompro", vmin=0, vmax=40)</code></pre>
+fig, ax = mrr.plot.quicklook(variable="Ze", source="raprompro", vmin=0, vmax=40)</code></pre>
       <p><a href="getting-started.html">Open the full getting started guide</a></p>
     </section>
 

@@ -1,10 +1,10 @@
 import numpy as np
 import xarray as xr
 
-from mrrpropy.analysis.process_features import get_spectral_features
+from mrrpropy.analysis.rain_process_features import get_spectral_process_features
 
 
-def test_get_spectral_features_fixed_layer_simple_two_bin():
+def test_get_spectral_process_features_fixed_layer_simple_two_bin():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -23,7 +23,7 @@ def test_get_spectral_features_fixed_layer_simple_two_bin():
     z_bottom = xr.DataArray(0.0)
     z_center = xr.DataArray(100.0)
 
-    features = get_spectral_features(
+    features = get_spectral_process_features(
         ds,
         mode="fixed_layer",
         z_top=z_top,
@@ -46,7 +46,7 @@ def test_get_spectral_features_fixed_layer_simple_two_bin():
     assert float(features["v_p50_bottom"].values[0]) == -2.0
 
 
-def test_get_spectral_features_scan_uses_z_center_as_layer_coord():
+def test_get_spectral_process_features_scan_uses_z_center_as_layer_coord():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -67,7 +67,7 @@ def test_get_spectral_features_scan_uses_z_center_as_layer_coord():
     z_bottom = xr.DataArray(np.array([0.0, 200.0], dtype=float), dims=("layer",))
     z_center = xr.DataArray(np.array([50.0, 250.0], dtype=float), dims=("layer",))
 
-    features = get_spectral_features(
+    features = get_spectral_process_features(
         ds,
         mode="scan",
         z_top=z_top,

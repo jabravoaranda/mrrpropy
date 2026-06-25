@@ -10,7 +10,7 @@ from matplotlib.colors import BoundaryNorm, ListedColormap
 import numpy as np
 import xarray as xr
 
-from mrrpropy.raw_class import MRRProData
+from mrrpropy import MRRProData
 
 matplotlib.use("Agg")
 
@@ -249,7 +249,7 @@ def main() -> None:
         valid_ranges = [r for r in args.ranges if available_ranges.min() <= r <= available_ranges.max()]
 
         if "dsd_3D" in ds:
-            fig_dsd_by_range, path_dsd_by_range = mrr.plot_DSD_by_range(
+            fig_dsd_by_range, path_dsd_by_range = mrr.plot.dsd_by_range(
                 target_datetime=target_datetime,
                 ranges=valid_ranges,
                 savefig=True,
@@ -259,7 +259,7 @@ def main() -> None:
             plt.close(fig_dsd_by_range)
             print(f"DSD_by_range: {path_dsd_by_range}")
 
-            fig_dsdgram, path_dsdgram = mrr.plot_DSDgram(
+            fig_dsdgram, path_dsdgram = mrr.plot.dsdgram(
                 target_datetime=target_datetime,
                 savefig=True,
                 output_dir=output_dir,
@@ -271,7 +271,7 @@ def main() -> None:
             print("[skip] dsd_3D not present in the processed file; DSD figures were not generated.")
 
         if "spe_3D" in ds:
-            fig_spectrogram, path_spectrogram = mrr.plot_spectrogram(
+            fig_spectrogram, path_spectrogram = mrr.plot.spectrogram(
                 target_datetime=target_datetime,
                 spectrum_var="spe_3D",
                 savefig=True,
