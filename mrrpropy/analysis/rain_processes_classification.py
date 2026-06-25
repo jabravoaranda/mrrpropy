@@ -14,7 +14,7 @@ from mrrpropy.hexagram import (
     get_hexagram_assets,
     map_rgb_to_hexagram,
 )
-from mrrpropy.rain_process_info import PROCESS_SIGNATURES
+from mrrpropy.processing.rain_process_info import PROCESS_SIGNATURES
 
 
 class SupportsRainAnalysis(Protocol):
@@ -645,3 +645,4 @@ def classify_rain_process_features(
             out = refiner(rain_process_features, out)
 
     return out
+

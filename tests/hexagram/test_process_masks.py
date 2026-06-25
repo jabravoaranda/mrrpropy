@@ -1,7 +1,7 @@
 import matplotlib
 import pytest
 
-from mrrpropy.rain_process_info import PROCESS_SIGNATURES
+from mrrpropy.processing.rain_process_info import PROCESS_SIGNATURES
 
 matplotlib.use("Agg")
 
@@ -21,3 +21,4 @@ def test_plot_hexagram_process(raw_mrr, product_dir):
 
     assert isinstance(fig, matplotlib.figure.Figure)
     assert filepath.exists()
+

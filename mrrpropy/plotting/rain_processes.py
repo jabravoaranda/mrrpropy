@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.rain_process_info import (
+from mrrpropy.processing.rain_process_info import (
     PROCESS_CODES,
     PROCESS_COLORS,
     PROCESS_MARKERS,
@@ -1704,4 +1704,5 @@ def plot_classified_processes_on_hexagram(
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
     return fig, filepath
+
 

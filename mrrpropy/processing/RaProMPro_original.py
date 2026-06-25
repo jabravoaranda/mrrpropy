@@ -1,10 +1,11 @@
 """
-Optimization branch of the RaProMPro processing chain for METEK MRR-PRO data.
+Scientific reference implementation of the RaProMPro processing chain for METEK
+MRR-PRO data.
 
-This module starts from the retained scientific reference implementation and is used
-for controlled performance work inside `mrrpropy`. Any changes here are intended to
-preserve scientific outputs while improving runtime or maintainability, and they are
-validated against the reference path through dedicated equivalence tests.
+This module is kept in the repository as the local scientific reference used by
+`mrrpropy`. It preserves the original processing logic as closely as possible so
+that higher-level workflow changes and optimization work can be validated against a
+stable baseline.
 
 Scientific references
 ---------------------
@@ -26,9 +27,8 @@ https://github.com/AlbertGBena/RaProM-Pro
 
 Notes
 -----
-This file is not the upstream source of truth. It is the local optimization branch
-maintained in this repository for benchmarked, test-guarded improvements relative to
-`RaProMPro_original.py`.
+This file corresponds to the MRR-PRO branch of the methodology. A related MRR-2
+implementation is distributed separately upstream as `RaProM.py`.
 """
 
 ##SCRIPT FOR READING AND PROCESSING DATA FROM MRR PRO IN A FOLDER
@@ -77,7 +77,7 @@ def _safe_pair_nanmean(a, b):
     return means
 
 
-def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
+def Aliasing(matriu,fNy,he,temps):#analyse to correct the aliasing
     numberDoppler=len(matriu[0])
     speed=np.arange(0,fNy*numberDoppler,fNy)
     speeddeal=np.arange(-1*fNy*numberDoppler,2*fNy*numberDoppler,fNy)
@@ -179,7 +179,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                 
                 I=np.nanargmax(np.asarray(deal))
                 Indvel=speeddeal*(vect/vect)
-                VectRe,inewV=group_original(vect,I,3,Indvel)
+                VectRe,inewV=group(vect,I,3,Indvel)
             
         else:
             if Imax[i]-Imin[i]>(numberDoppler/2) and LeNnan[i]>numberDoppler/4:#apply 2 condition, one for if exist aliasing and the second to avoid a large vector
@@ -196,7 +196,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                             
                         I=np.nanargmax(np.asarray(deal))
                         Indvel=speeddeal*(vect/vect)
-                        VectRe,inewV=group_original(vect,I,3,Indvel)
+                        VectRe,inewV=group(vect,I,3,Indvel)
                 else:
                     if W[i-1]<(fNy*numberDoppler/3):
                         vect2=vect[int(numberDoppler*3/4):int(numberDoppler*5/4)]
@@ -212,7 +212,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                                     
                             I=np.nanargmax(np.asarray(deal))
                             Indvel=speeddeal*(vect/vect)
-                            VectRe,inewV=group_original(vect,I,3,Indvel)
+                            VectRe,inewV=group(vect,I,3,Indvel)
                     else:
                         vect2=vect[int(numberDoppler):int(numberDoppler*2)]
                         speed2=speeddeal[int(numberDoppler):int(numberDoppler*2)]
@@ -225,7 +225,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                                         
                             I=np.nanargmax(np.asarray(deal))
                             Indvel=speeddeal*(vect/vect)
-                            VectRe,inewV=group_original(vect,I,3,Indvel)
+                            VectRe,inewV=group(vect,I,3,Indvel)
                 W[i]=w4
                 
             else:
@@ -243,7 +243,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                                 
                             I=np.nanargmax(np.asarray(deal))
                             Indvel=speeddeal*(vect/vect)
-                            VectRe,inewV=group_original(vect,I,3,Indvel)
+                            VectRe,inewV=group(vect,I,3,Indvel)
                     else:
                         if W[i-1]<(fNy*numberDoppler*1/4):
                             vect2=vect[int(numberDoppler*3/4):int(numberDoppler*5/4)]
@@ -258,7 +258,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                                         
                                 I=np.nanargmax(np.asarray(deal))
                                 Indvel=speeddeal*(vect/vect)
-                                VectRe,inewV=group_original(vect,I,3,Indvel)
+                                VectRe,inewV=group(vect,I,3,Indvel)
                         else:
                             vect2=vect[int(numberDoppler):int(numberDoppler*2)]
                             speed2=speeddeal[int(numberDoppler):int(numberDoppler*2)]
@@ -271,7 +271,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                                         
                                 I=np.nanargmax(np.asarray(deal))
                                 Indvel=speeddeal*(vect/vect)
-                                VectRe,inewV=group_original(vect,I,3,Indvel)
+                                VectRe,inewV=group(vect,I,3,Indvel)
                     W[i]=w4
                 else:
                     W_da.append(W[i])
@@ -283,7 +283,7 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
                         
                         I=np.nanargmax(np.asarray(deal))
                         Indvel=speeddeal*(vect/vect)
-                        VectRe,inewV=group_original(vect,I,3,Indvel)
+                        VectRe,inewV=group(vect,I,3,Indvel)
                     
 
 
@@ -292,121 +292,6 @@ def Aliasing_original(matriu,fNy,he,temps):#analyse to correct the aliasing
     
 
     return ReVect
-
-
-def Aliasing_optimized(matriu,fNy,he,temps):#candidate aliasing path
-    matriu = np.asarray(matriu, dtype=float)
-    n_profiles, numberDoppler = matriu.shape
-    speed=np.arange(0,fNy*numberDoppler,fNy)
-    speeddeal=np.arange(-1*fNy*numberDoppler,2*fNy*numberDoppler,fNy)
-
-    etaN_da = np.full((n_profiles, numberDoppler * 3), np.nan, dtype=float)
-    etaN_da[:, numberDoppler:2 * numberDoppler] = matriu
-    if n_profiles > 1:
-        etaN_da[0, 2 * numberDoppler:] = matriu[1]
-        etaN_da[-1, :numberDoppler] = matriu[-2]
-    if n_profiles > 2:
-        etaN_da[1:, :numberDoppler] = matriu[:-1]
-        etaN_da[:-1, 2 * numberDoppler:] = matriu[1:]
-        etaN_da[0, :numberDoppler] = np.nan
-        etaN_da[-1, 2 * numberDoppler:] = np.nan
-
-    W=np.full(n_profiles, np.nan, dtype=float)
-    Imax=np.full(n_profiles, np.nan, dtype=float)
-    Imin=np.full(n_profiles, np.nan, dtype=float)
-    LeNnan=np.full(n_profiles, np.nan, dtype=float)
-
-    for i in range(n_profiles):
-        vect=np.array(matriu[i], copy=True)
-        vect[np.isinf(vect)] = np.nan
-
-        w3, sigma3, PT3 = _safe_velocity_sigma(vect, speed)
-        W[i] = w3
-
-        valid = ~np.isnan(vect)
-        if not np.any(valid):
-            LeNnan[i] = numberDoppler / 2
-            continue
-
-        isolated = np.zeros(numberDoppler, dtype=bool)
-        isolated[0] = valid[0] and not valid[1]
-        isolated[-1] = valid[-1] and not valid[-2]
-        if numberDoppler > 2:
-            isolated[1:-1] = valid[1:-1] & ~valid[:-2] & ~valid[2:]
-        vect2 = vect.copy()
-        vect2[isolated] = np.nan
-
-        valid2 = ~np.isnan(vect2)
-        idx = np.flatnonzero(valid2)
-        First = idx[0]
-        Darrer = idx[-1]
-        Imin[i] = First
-        Imax[i] = Darrer
-        LeNnan[i] = np.count_nonzero(~valid2[First:Darrer])
-
-    vec_null=np.full(numberDoppler, np.nan, dtype=float)
-    Nul1=np.full(int(numberDoppler*5/4), np.nan, dtype=float)
-    Nul2=np.full(int(numberDoppler*3/4), np.nan, dtype=float)
-    ReVect=[]
-    mid_start = numberDoppler
-    mid_end = numberDoppler * 2
-    upper_start = int(numberDoppler * 5 / 4)
-    upper_end = int(numberDoppler * 9 / 4)
-    lower_start = int(numberDoppler * 3 / 4)
-    lower_end = int(numberDoppler * 5 / 4)
-    deal_template = np.full_like(speeddeal, np.nan)
-
-    def _run_group(vect: np.ndarray, deal_left: int, deal_right: int) -> tuple[np.ndarray, float]:
-        vect2 = vect[deal_left:deal_right]
-        speed2 = speeddeal[deal_left:deal_right]
-        w4, _, PT4 = _safe_velocity_sigma(vect2, speed2)
-
-        deal = deal_template.copy()
-        deal[deal_left:deal_right] = vect2
-        if np.isnan(deal).all():
-            return vect*np.nan, w4
-
-        I=np.nanargmax(deal)
-        Indvel=speeddeal*(vect/vect)
-        VectRe,inewV=group_original(vect,I,3,Indvel)
-        return VectRe, w4
-
-    for i in range(n_profiles):
-        vect=etaN_da[i]
-        if i<=2 or np.isnan(Imin[i]) or np.isnan(Imax[i]):
-            VectRe, _ = _run_group(vect, mid_start, mid_end)
-            
-        else:
-            if Imax[i]-Imin[i]>(numberDoppler/2) and LeNnan[i]>numberDoppler/4:#apply 2 condition, one for if exist aliasing and the second to avoid a large vector
-                if W[i-1]>(fNy*numberDoppler/2):
-                    VectRe, w4 = _run_group(vect, upper_start, upper_end)
-                else:
-                    if W[i-1]<(fNy*numberDoppler/3):
-                        VectRe, w4 = _run_group(vect, lower_start, lower_end)
-                    else:
-                        VectRe, w4 = _run_group(vect, mid_start, mid_end)
-                W[i]=w4
-                
-            else:
-                if W[i]>(fNy*numberDoppler/2):
-                    if W[i-1]>(fNy*numberDoppler/2):
-                        VectRe, w4 = _run_group(vect, upper_start, upper_end)
-                    else:
-                        if W[i-1]<(fNy*numberDoppler*1/4):
-                            VectRe, w4 = _run_group(vect, lower_start, lower_end)
-                        else:
-                            VectRe, w4 = _run_group(vect, mid_start, mid_end)
-                    W[i]=w4
-                else:
-                    VectRe, _ = _run_group(vect, mid_start, mid_end)
-                    
-        ReVect.append(VectRe)
-
-    return ReVect
-
-
-def Aliasing(matriu,fNy,he,temps):#backward compatible alias
-    return Aliasing_original(matriu,fNy,he,temps)
 
 
 def anchor(signal, weight):
@@ -660,7 +545,7 @@ def BB2(V,ZE,he,SK,KUR,last_bot,last_top,last_peak):#the input are fall speed, e
     return hBBbottom,hBBtop,hBBPEAK    
 
 
-def group_original(a,indexcentral,Nnan,d):
+def group(a,indexcentral,Nnan,d):
     
     d=np.asarray(d)
     a=np.asarray(a)
@@ -782,156 +667,17 @@ def group_original(a,indexcentral,Nnan,d):
     return vf2,xf2
     
 
-def group_optimized(a,indexcentral,Nnan,d):
-    d=np.asarray(d)
-    a=np.asarray(a)
-    b=np.where(a>=0)
-    acut=np.asarray(a[NbinsM:2*NbinsM])
-    dcut = np.asarray(d[NbinsM:2*NbinsM])
-    bcut=np.where(acut>=0)
-
-
-    c=b[0]
-    ccut=bcut[0]
-
-    if indexcentral<=(NbinsM+(NbinsM/4)) or indexcentral>=(NbinsM+(3*NbinsM/4)):
-
-        for i in range(np.size(b)-1):
-            if c[i]-indexcentral<=0 and c[i+1]-indexcentral>=0:
-                index=c[i+1]
-                break
-            else:
-                index=indexcentral
-
-        cond=1
-        cont=0
-        incr1=0#starts at 0
-
-        while cond:
-            if cont>=Nnan or (index)+incr1>=(len(a)-1):
-                
-                cond=0
-            else:
-            
-                if np.isnan(a[index+incr1]):
-                    cont+=1
-                else:
-                    cont=0
-
-
-            incr1+=1
-
-        cont=0;
-        incr2=1#starta at 1
-        
-        cond=1
-        while cond:
-            if cont>=Nnan or index-incr2<=0:
-                cond=0
-            
-
-            if np.isnan(a[index-incr2]):
-                cont+=1
-            
-            else:
-                cont=0
-
-
-            incr2+=1
-        vf2=np.full_like(a, np.nan)
-        xf2=np.full_like(d, np.nan)
-        left = index-incr2+1
-        right = index+incr1
-        vf2[left:right] = a[left:right]
-        xf2[left:right] = d[left:right]
-            
-
-    else:
-        
-        for i in range(np.size(bcut)-1):
-            if ccut[i]-indexcentral<=0 and ccut[i+1]-indexcentral>=0:
-                index=ccut[i+1]
-                break
-            else:
-                index=indexcentral-NbinsM
-
-        cond=1
-        cont=0
-        incr1=0#starts at 0
-
-        while cond:
-            if cont>=Nnan or index+incr1>=len(acut)-1:
-                cond=0
-            else:
-                
-                if np.isnan(acut[index+incr1]):
-                    cont+=1
-                else:
-                    cont=0
-
-
-            incr1+=1
-
-        cont=0;
-        incr2=1#starts at 1
-        
-        cond=1
-        while cond:
-            if cont>=Nnan or index-incr2<=0:
-                cond=0
-            
-            if np.isnan(acut[index-incr2]):
-                cont+=1
-            
-            else:
-                cont=0
-
-
-            incr2+=1
-        vf2=np.full_like(a, np.nan)
-        xf2=np.full_like(d, np.nan)
-        left = index-incr2+1
-        right = index+incr1
-        vf2[NbinsM + left:NbinsM + right] = acut[left:right]
-        xf2[NbinsM + left:NbinsM + right] = dcut[left:right]
-        
-
-    return vf2,xf2
-
-
-def group(a,indexcentral,Nnan,d):
-    return group_original(a,indexcentral,Nnan,d)
-
-
 def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function is the core of the signal processing
     matrix=np.asarray(matrix)
-    he = np.asarray(he, dtype=float)
     lenHei=len(he)
     Doppler_bins=len(matrix[0])
     roW=10**6 #water density g/m3
     Cfact=2#value from cover factor, is the number multiplicate to sigma, Initially I considered as 2.
     ##Found the parameters dv in function of the height (mrr physics equation)
-    dv = 1 + 3.68 * 10**-5 * he + 1.71 * 10**-9 * he**2
-    D_arrays = [np.asarray(diam, dtype=float) for diam in D]
-    dif_cache=[]
-    dif2_cache=[]
-    for m in range(len(D_arrays)):
-        current_d = D_arrays[m]
-        dif=[]
-        dif2=[]
-        for n in range(len(current_d)):
-            if n==0 or n==len(current_d)-1:
-                if n==0:
-                    dif2.append(current_d[n+1]-current_d[n])
-                    dif.append(current_d[n+1]-current_d[n])
-                if n==len(current_d)-1:
-                    dif.append(abs(current_d[n-1]-current_d[n]))
-                    dif2.append(abs(current_d[n]-current_d[n-1]))
-            else:
-                dif2.append(abs((current_d[n+1]-current_d[n])))
-                dif.append(abs((current_d[n+1]-current_d[n-1]))/2.)
-        dif_cache.append(np.asarray(dif, dtype=float))
-        dif2_cache.append(np.asarray(dif2, dtype=float))
+    dv=[]
+    for i in range(len(he)):
+
+        dv.append(1+3.68*10**-5*he[i]+1.71*10**-9*he[i]**2)
     if code==0:#from spectrum_raw
         etan=np.copy(matrix)
         etaN=np.multiply(etan,cte)
@@ -941,70 +687,97 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
         
         Noise=np.multiply(neta,cte)#noise from eta (n) units m-1
         
-        Snr=np.full(len(Noise), np.nan, dtype=float)
+        Snr=[]
         for j in range(len(Noise)):
-            if ~np.isnan(Noise[j]):
-                Snr[j] = 10.*np.log10(np.nansum(etan[j])/neta[j])
+            if np.isnan(Noise[j]):
+                Snr.append(np.nan)
+            else:
+                Snr.append(10.*np.log10(np.nansum(etan[j])/neta[j]))
     if code==1:#from spectrum_reflectivity
         etaV=np.copy(matrix)
         Snr=np.copy(Noi_spe_ref)
         Noise=np.copy(Snr)*np.nan
-    n_profiles = len(matrix)
-    zewater=np.full(n_profiles, np.nan, dtype=float)
-    Ni=[None] * n_profiles
-    VT=[None] * n_profiles
-    Vhail=[None] * n_profiles
-    Vec_Deal=Aliasing_optimized(etaV,deltavel,he,temps)#function to avoid the aliasing#################
+    state=[]
+    zewater=[];Ni=[];VT=[];Z=[];Z_da=[];Vhail=[]
+    Vec_Deal=Aliasing(etaV,deltavel,he,temps)#function to avoid the aliasing#################
 
-    PIAind=np.full(n_profiles, np.nan, dtype=float)
-    Z_pol_h=np.full(n_profiles, np.nan, dtype=float)
-    Z_all=np.full(n_profiles, np.nan, dtype=float)
-    RR_all=np.full(n_profiles, np.nan, dtype=float)
-    LWC_all=np.full(n_profiles, np.nan, dtype=float)
-    N_all=np.full(n_profiles, np.nan, dtype=float)
-    dm_all=np.full(n_profiles, np.nan, dtype=float)
-    nw_all=np.full(n_profiles, np.nan, dtype=float)
+    PIAind=[]
+    Z_pol_h=[];Z_all=[];RR_all=[];LWC_all=[];N_all=[];dm_all=[];nw_all=[]
     speeddeal=np.arange(-Nbins*fNy,2*Nbins*fNy,fNy)
     
 
-    DeltaAlt=he[3]-he[2]
     for m in range(len(etaV)): 
         vect1=Vec_Deal[m]
         vect2=vect1[Doppler_bins:2*Doppler_bins]
-        current_d = D_arrays[m]
-        sigma_scatt = np.asarray(SigmaScatt[m], dtype=float)
-        sigma_ext = np.asarray(SigmaExt[m], dtype=float)
-        exp_term = np.exp(-0.6 * current_d)
-        value = 6.18 * vect2 * dv[m] * exp_term#D in mm
-        vt = (9.65 - 10.3 * exp_term) * dv[m]
-        velHail = 13.96 * np.sqrt(10 * current_d)#vel from Hail Ulbrich and atlas 1982
-        nde = 10**6 * (value / sigma_scatt)#units mm-1 m-3 N(D)
-        zewater[m] = 10**18*lamb**4*np.nansum(vect2)*deltavel/K2w#Rayleight approach
-        Vhail[m] = velHail
-        VT[m] = vt
-        Ni[m] = nde
+
+        
+        proba=np.where(~np.isnan(vect2))
+        leN=len(vect2)
+        
+
+        zewater.append(10**18*lamb**4*np.nansum(vect2)*deltavel/K2w)#Rayleight approach
+        nde=[];vt=[];velHail=[]
+        for n in range(len(etaV[0])):#Calculate the Ze from every gate without PIA                    
+            value=6.18*vect2[n]*dv[m]*e**(-1*0.6*D[m][n])#D in mm
+            
+            value3=(9.65-10.3*e**(-1*0.6*D[m][n]))*dv[m]
+
+            velHail.append(13.96*np.sqrt(10*D[m][n]))#vel from Hail Ulbrich and atlas 1982
+            
+            sbk=SigmaScatt[m][n]
+            
+            value2=10**6*(value/sbk)#(10**6)*(value/sbk)#N in m-3 mm-1
+            
+            nde.append(value2)#units mm-1 m-3 N(D)
+            
+            vt.append(value3)#terminal speed in function heigh and diameter
+            
+        Vhail.append(velHail)    
+        VT.append(vt)    
+        Ni.append(nde)
         ########    CALCULATE THE PIA INDEPENDENT THE STATE
-        dif=dif_cache[m]#diference between diameters for N
-        dif2=dif2_cache[m]#diference between diameters for Z
-        d_pow3 = current_d**3
-        d_pow4 = current_d**4
-        d_pow6 = current_d**6
-        Z_pol_h[m] = _safe_log10_from_linear(np.nansum(nde * d_pow6 * dif))
+        dif=[]#diference between diameters for N
+        dif2=[]#diference between diameters for Z
+
+        for n in range(len(D[m])):
+            if n==0 or n==len(D[m])-1:
+                if n==0:
+                    dif2.append(D[m][n+1]-D[m][n])
+                    dif.append(D[m][n+1]-D[m][n])
+                if n==len(D[m])-1:
+                    dif.append(abs(D[m][n-1]-D[m][n]))
+                    dif2.append(abs(D[m][n]-D[m][n-1]))
+            else:
+                dif2.append(abs((D[m][n+1]-D[m][n])))
+                dif.append(abs((D[m][n+1]-D[m][n-1]))/2.)
+        Z_pol_h.append(_safe_log10_from_linear(np.nansum(np.prod([nde,pow(np.asarray(D[m]),6),dif],axis=0))))
+
+        DeltaAlt=he[3]-he[2]
 
         if m==0:
-            PIAind[m] = 1.
+            PIAind.append(1.)
         else:
-            prev_pia = PIAind[m - 1]
-            Np=np.multiply(nde,prev_pia)
-            kp=np.nansum(sigma_ext * Np * dif)*10**-6
+            Np=np.multiply(nde,PIAind[-1])
+            Pro=[]
+            for k in range(len(Np)):
+                pro=SigmaExt[m][k]*Np[k]*dif[k]
+                            
+                Pro.append(pro)
+                           
+            kp=np.nansum(Pro)*10**-6
                         
             num=2.*kp*DeltaAlt
 
             with np.errstate(invalid="ignore", divide="ignore"):
                 N=-1.*np.multiply(Np,np.log(1-num)/num)
-            Kr=np.nansum(sigma_ext * N * dif)*10**-6
+            Pro2=[]
+            for k in range(len(N)):
+                pro2=SigmaExt[m][k]*N[k]*dif[k]
+                Pro2.append(pro2)
+                            
+            Kr=np.nansum(Pro2)*10**-6
 
-            pia=prev_pia*e**(-2.*Kr*DeltaAlt)
+            pia=PIAind[-1]*e**(-2.*Kr*DeltaAlt)
 
             if pia>=10. or num==0.:
                 if num==0:
@@ -1012,43 +785,43 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
                 else:
                     pia=10.
 
-            PIAind[m] = pia
-        vel=speeddeal
+            PIAind.append(pia)
+        vel=np.copy(speeddeal)
         w, _, PT = _safe_velocity_sigma(vect1, vel)
 
-        value=np.nansum(d_pow6 * nde * dif2)
-        value2=np.nansum(d_pow3 * nde * dif2)
-        value3=value2 * w
-        value4=np.nansum(d_pow4 * nde * dif2)
+        value=np.nansum(np.prod([np.power(D[m],6),nde,dif2],axis=0))
+        value2=np.nansum(np.prod([np.power(D[m],3),nde,dif2],axis=0))
+        value3=np.nansum(np.prod([np.power(D[m],3),nde,dif2],axis=0))*w
+        value4=np.nansum(np.prod([np.power(D[m],4),nde,dif2],axis=0))
                 
         if np.nansum(nde)<=0.:
-            N_all[m] = np.nan
+            N_all.append(np.nan)
         else:
-            N_all[m] = np.log10(np.nansum(nde))
+            N_all.append(np.log10(np.nansum(nde)))
         
 
         if value<=0. or np.isnan(value):
-            Z_all[m] = np.nan
+            Z_all.append(np.nan)
 
         else:
-            Z_all[m] = 10*np.log10(value)
+            Z_all.append(10*np.log10(value))
 
         if value2<=0. or np.isnan(value2):
-            LWC_all[m] = np.nan
+            LWC_all.append(np.nan)
         else:
-            LWC_all[m] = roW*value2*(np.pi/6.)*(10**-9)
+            LWC_all.append(roW*value2*(np.pi/6.)*(10**-9))
 
         if value3<=0. or np.isnan(value3):
-            RR_all[m] = np.nan
+            RR_all.append(np.nan)
         else:
-            RR_all[m] = value3*(np.pi/6.)*(10**-9)*1000.*3600.
+            RR_all.append(value3*(np.pi/6.)*(10**-9)*1000.*3600.)
 
         if value4<=0 or np.isnan(value2):
-            dm_all[m] = np.nan
-            nw_all[m] = np.nan
+            dm_all.append(np.nan)
+            nw_all.append(np.nan)
         else:
-            dm_all[m] = value4/value2
-            nw_all[m] = np.log10(256.*(roW*value2*(np.pi/6.))/ (np.pi*roW*(value4/value2)**4))#units m-3 mm-1
+            dm_all.append(value4/value2)
+            nw_all.append(np.log10(256.*(roW*value2*(np.pi/6.))/ (np.pi*roW*(value4/value2)**4)))#units m-3 mm-1
         
 
         
@@ -1069,27 +842,13 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
     vwaterMie=_safe_pair_nanmean(vwaterMieconv,vwaterMiestr)
     
     speeddeal=np.arange(-Nbins*fNy,2*Nbins*fNy,fNy)
-    NewM=[None] * n_profiles
-    state=[np.nan] * n_profiles
-    mov=[np.nan] * n_profiles
-    VerTur=[np.nan] * n_profiles
-    W=[np.nan] * n_profiles
-    Sig=[np.nan] * n_profiles
-    Sk=[np.nan] * n_profiles
-    lwc=[np.nan] * n_profiles
-    rr=[np.nan] * n_profiles
-    Z_da=[np.nan] * n_profiles
-    SnowRate=[np.nan] * n_profiles
-    N_da=[np.nan] * n_profiles
-    Kurt=[np.nan] * n_profiles
-    dm=[np.nan] * n_profiles
-    nw=[np.nan] * n_profiles
-    N_D_T=[None] * n_profiles
-    ZE=np.full(n_profiles, np.nan, dtype=float)
-    Vector=np.full(n_profiles, np.nan, dtype=float)
-    blank_nd_rows=[np.full(len(diam), np.nan, dtype=float) for diam in D_arrays]
+    NewM=[];state=[];mov=[];VerTur=[]
+    W=[];Sig=[];Sk=[];lwc=[];rr=[];Z_da=[];SnowRate=[];N_da=[];Kurt=[];dm=[];nw=[];N_D_T=[]
     if np.sum(np.nanmean([vwaterR,vsnowR],axis=0))!=0:
+        
 
+        DealMatrix=[]
+        
         for o in range(len(matrix)):
             ReVect=Vec_Deal[o]
             if np.isnan(ReVect).all():
@@ -1109,64 +868,64 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
 
                 if abs(S)<=(Cfact*abs(sigma3)) and abs(L)>(Cfact*abs(sigma3)):#case not liquid, possible snow
 
-                    state[o] = -10#snow
+                    state.append(-10)#snow
 
                     if S<0 :
                         
-                        mov[o] = -1#mvt upward
+                        mov.append(-1)#mvt upward
                     else:
-                        mov[o] = 1#mvt downpward
+                        mov.append(1)#mvt downpward
                 else:
-                    state[o] = 0#mixed
-                    mov[o] = -1
+                    state.append(0)#mixed
+                    mov.append(-1)
                     
             if abs(S)>=abs(L):#rain case
                         
                 if abs(S)>(Cfact*abs(sigma3)) and abs(L)<=(Cfact*abs(sigma3)):#case liquid
                     
 
-                    state[o] = 10#rain
+                    state.append(10)#rain
 
                     if L<0:
                         
-                        mov[o] = -1
+                        mov.append(-1)
                     else:
-                        mov[o] = 1
+                        mov.append(1)
                 else:
-                    state[o] = 0#mixed
-                    mov[o] = 1
+                    state.append(0)#mixed
+                    mov.append(1)
                     
             if np.isnan(L) and np.isnan(S):
-                state[o] = np.nan
-                mov[o] = np.nan
+                state.append(np.nan)
+                mov.append(np.nan)
 
 
 
             if np.isnan(S) and ~np.isnan(L):#case liquid, but possible wrong election
-                state[o] = 10#rain
+                state.append(10)#rain
                 if L<0:
-                    mov[o] = -1
+                    mov.append(-1)
                 else:
-                    mov[o] = 1
+                    mov.append(1)
 
 
                         
 
                     
             if ~np.isnan(S) and np.isnan(L):#case not liquid, but possible wrong election
-                state[o] = -10#snow
+                state.append(-10)#snow
                 if S<0:
-                    mov[o] = -1
+                    mov.append(-1)
                 else:
-                    mov[o] = 1
+                    mov.append(1)
                         
 
 
 
                         
-
+                        
             
-            NewM[o] = ReVect
+            NewM.append(ReVect)
         
 
             
@@ -1186,13 +945,26 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
                     state[m]=-10
                 if s2==-15 and s1==-10 and s3==-10:
                     state[m]=-10
-        vel=speeddeal
+        Mwater=[]
+        Msnow=[]
+        Mmixed=[]
+        Mhail=[]
+        MDriz=[]
+        Munk=[]
+        ZE=[]
+        Mgrau=[]
+        
+
+        vel=np.copy(speeddeal)
+        Nde=[]
+        PIA=[]
 ############        create the vector diff Ze to detect drizzle
+        Vector=[]
         for m in range(len(NewM)):
             vector=NewM[m]
-            vector_mid = vector[Nbins:int(Nbins*2)]
-            ValueZeD=(10**18*lamb**4*deltavel*np.nansum(vector_mid))/(np.pi**5*K2w)
-            Vector[m] = ValueZeD
+            vector2=vector[Nbins:int(Nbins*2)]
+            ValueZeD=(10**18*lamb**4*deltavel*np.nansum(vector2))/(np.pi**5*K2w)
+            Vector.append(ValueZeD)
         Zediff=np.diff(Vector)
                       
                       
@@ -1200,68 +972,95 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
         for m in range(len(NewM)):
 
             vector=NewM[m]
-            vector_mid = vector[Nbins:int(Nbins*2)]
-            NullVector=np.full_like(vector, np.nan)
-            blank_nd = blank_nd_rows[m]
-            current_d = D_arrays[m]
-            dif = dif_cache[m]
-            dif2 = dif2_cache[m]
-            d_pow3 = current_d**3
-            d_pow4 = current_d**4
-            d_pow6 = current_d**6
-            sigma_scatt = np.asarray(SigmaScatt[m], dtype=float)
+            NullVector=NewM[m]*np.nan
             
             
 
             w, sigma, PT = _safe_velocity_sigma(vector, vel)
-            vel_centered = vel - w
-            sk=np.nansum(vector * np.power(vel_centered,3))/(PT*pow(sigma,3))# skewnes
-            Kur=np.nansum(vector * np.power(vel_centered,4))/(PT*pow(sigma,4))# Kurtosis
-            ValueZe=(10**18*lamb**4*deltavel*np.nansum(vector))/(np.pi**5*K2w)
+            sk=np.nansum(np.prod([vector,np.power(vel-w,3)],axis=0))/(PT*pow(sigma,3))# skewnes
+            Kur=np.nansum(np.prod([vector,np.power(vel-w,4)],axis=0))/(PT*pow(sigma,4))# Kurtosis
+            ValueZe=(10**18*lamb**4*deltavel*np.nansum(NewM[m]))/(np.pi**5*K2w)
 
             
             if ValueZe<=0 or np.isnan(ValueZe) or np.isinf(ValueZe):
-                ZE[m] = np.nan
+                ZE.append(np.nan)
             else:
-                ZE[m] = 10*np.log10(ValueZe)
+                ZE.append(10*np.log10(ValueZe))
             if w==0.:
                 w=np.nan
 
             
-            W[m] = w
+            W.append(w)
             
-            Sig[m] = sigma
-            Sk[m] = sk
-            Kurt[m] = Kur
+            Sig.append(sigma)
+            Sk.append(sk)
+            Kurt.append(Kur)
 
             
             
             
             if state[m]==10:#rain case
-                SnowRate[m] = np.nan
+                
+                Mwater.append(NewM[m])
+                SnowRate.append(np.nan)
 
-                nde = (10**6) * (6.18 * vector_mid * dv[m] * np.exp(-0.6 * current_d) / sigma_scatt)#units mm-1 m-3
-                N_D_T[m] = nde
+                dif=[]#diference between diameters for N
+                dif2=[]#diference between diameters for Z
+                nde=[]
+                indexFinded=[]
+                for n in range(len(D[m])):
+                    if n==0 or n==len(D[m])-1:
+                        if n==0:
+                            dif2.append(D[m][n+1]-D[m][n])
+                            dif.append(D[m][n+1]-D[m][n])
+                        if n==len(D[m])-1:
+                            dif.append(abs(D[m][n-1]-D[m][n]))
+                            dif2.append(abs(D[m][n]-D[m][n-1]))
+                    else:
+                        dif2.append(abs((D[m][n+1]-D[m][n])))
+                        dif.append(abs((D[m][n+1]-D[m][n-1]))/2.)
+                        condFH=speed[n]-w
+                        
+
+                        
+                
+                    EtaV=NewM[m][Nbins:int(Nbins*2)]#interval for water choosed
+                    value=6.18*EtaV[n]*dv[m]*e**(-1*0.6*D[m][n])
+                    s=SigmaScatt[m][n]
+                    value2=(10**6)*(value/s)#N in m-3 mm-1
+                    nde.append(value2)#units mm-1 m-3
+                N_D_T.append(nde)
                 #Calculate the diamater from the mean vel found
-                if np.isnan(vector_mid).all():
+                diaWork=np.copy(D[m])
+                
+
+                if np.isnan(NewM[m][Nbins:int(Nbins*2)]).all():
                     diamHail=3
                 else:
-                    diamHail=current_d[np.nanargmax(vector_mid)]#the diamHail is obtained with the max array position in eta over diameters                 
+                        
+                    diamHail=diaWork[np.nanargmax(NewM[m][Nbins:int(Nbins*2)])]#the diamHail is obtained with the max array position in eta over diameters                 
+                    
+                
 
                 LastN=nde
 
-                value=np.nansum(d_pow6 * LastN * dif2)
-                value2=np.nansum(d_pow3 * LastN * dif2)
-                value3=value2 * w
-                value4=np.nansum(d_pow4 * LastN * dif2)
+                value=np.nansum(np.prod([np.power(D[m],6),LastN,dif2],axis=0))
+                value2=np.nansum(np.prod([np.power(D[m],3),LastN,dif2],axis=0))
+                value3=np.nansum(np.prod([np.power(D[m],3),LastN,dif2],axis=0))*w
+                value4=np.nansum(np.prod([np.power(D[m],4),LastN,dif2],axis=0))
                 
                 if np.nansum(nde)<=0.:
-                    N_da[m] = np.nan
+                    N_da.append(np.nan)
                 else:
-                    N_da[m] = np.log10(np.nansum(LastN))
+                    N_da.append(np.log10(np.nansum(LastN)))
 
                 if diamHail>=5:#Hail case
+                    
+                    Mhail.append(NewM[m])
                     state[m]=-20.
+                    
+                else:
+                    Mhail.append(NullVector)
                 
 
                 if ~np.isnan(sk) :
@@ -1269,70 +1068,92 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
 
                     if m<len(Zediff):
                         if sk<=-0.5 and Zediff[m]>=1.:#New criteria from empric values. More information in--> https://doi.org/10.1175/JTECH-D-18-0158.1 (It's necessary to check again)
+
+                            
+                            MDriz.append(NewM[m])
                             state[m]=5.
+                        else:
+                            MDriz.append(NullVector)
+                    else:
+                        MDriz.append(NullVector)
+                    
+                else:
+                    MDriz.append(NullVector)
                         
                         
                         
                 if value<=0. or np.isnan(value):
-                    Z_da[m] = np.nan
+                    Z_da.append(np.nan)
                 else:
-                    Z_da[m] = 10*np.log10(value)
+                    Z_da.append(10*np.log10(value))
                 if value2==0.:
-                    lwc[m] = np.nan
+                    lwc.append(np.nan)
                 else:
-                    lwc[m] = roW*value2*(np.pi/6.)*(10**-9)
+                    lwc.append(roW*value2*(np.pi/6.)*(10**-9))
                 if value3==0.:
-                    rr[m] = np.nan
+                    rr.append(np.nan)
                 else:
-                    rr[m] = value3*(np.pi/6.)*(10**-9)*1000.*3600.
+                    rr.append(value3*(np.pi/6.)*(10**-9)*1000.*3600.)
                 if value4==0:
-                    dm[m] = np.nan
-                    nw[m] = np.nan
+                    dm.append(np.nan)
+                    nw.append(np.nan)
                 else:
-                    dm[m] = value4/value2
-                    nw[m] = np.log10(256.*(roW*value2*(np.pi/6.))/ (np.pi*roW*(value4/value2)**4))#units m-3 mm-1
+                    dm.append(value4/value2)
+                    nw.append(np.log10(256.*(roW*value2*(np.pi/6.))/ (np.pi*roW*(value4/value2)**4)))#units m-3 mm-1
                 if mov[m]==-1:#case rain and upward
-                      VerTur[m] = (2.6*np.power(ValueZe,.107))-w
+                      VerTur.append((2.6*np.power(ValueZe,.107))-w)
                 if mov[m]==1:#case rain and downward
-                      VerTur[m] = w-(2.6*np.power(ValueZe,.107))
+                      VerTur.append(w-(2.6*np.power(ValueZe,.107)))
                 if np.isnan(mov[m]):#case rain and upward
-                      VerTur[m] = np.nan
+                      VerTur.append(np.nan)
                
+            else:
+                Mwater.append(NullVector)
+                
+                
             if state[m]==-10:#Snow case
+                
+                Msnow.append(NewM[m])
+
 
                 if ValueZe<=0 or np.isnan(ValueZe):
                     
-                    SnowRate[m] = np.nan
+                    SnowRate.append(np.nan)
                 else:
                     if ~np.isnan(sk):
 
                         if sk>=0. and w>2.:
                             state[m]=-15.#graupel
                     
-                    SnowRate[m] = np.power(ValueZe/56.,1/1.2)#following Matrosov (2007) constants - https://link.springer.com/article/10.1007/s00703-011-0142-z#CR15
-                Z_da[m] = np.nan
-                lwc[m] = np.nan
-                nw[m] = np.nan
-                dm[m] = np.nan
-                rr[m] = np.nan
-                N_da[m] = np.nan
-                N_D_T[m] = blank_nd.copy()
+                    SnowRate.append(np.power(ValueZe/56.,1/1.2))#following Matrosov (2007) constants - https://link.springer.com/article/10.1007/s00703-011-0142-z#CR15
+                Z_da.append(np.nan)
+                lwc.append(np.nan)
+                nw.append(np.nan)
+                dm.append(np.nan)
+                rr.append(np.nan)
+                N_da.append(np.nan)
+                N_D_T.append(np.ones(len(D[m]))*np.nan)
                 if mov[m]==-1:#case snow and upward
-                      VerTur[m] = (.817*np.power(ValueZe,.063))-w
+                      VerTur.append((.817*np.power(ValueZe,.063))-w)
                 if mov[m]==1:#case snow and downward
-                      VerTur[m] = w-(.817*np.power(ValueZe,.063))
+                      VerTur.append(w-(.817*np.power(ValueZe,.063)))
                 if np.isnan(mov[m]):
-                      VerTur[m] = np.nan
+                      VerTur.append(np.nan)
                     
                 
                 
+            else:
+                Msnow.append(NullVector)
+                
+
+
             if state[m]==0:#Mixed case
                 
                 
                 
                 if Snr[m]<=15.:
                     state[m]=-10.#snow
-                    SnowRate[m] = np.power(ValueZe/56.,1/1.2)
+                    SnowRate.append(np.power(ValueZe/56.,1/1.2))
                                         
                 else:
                     if m<len(Zediff):
@@ -1342,61 +1163,79 @@ def Process(matrix,he,temps,D,cte,neta,deltavel,code,Noi_spe_ref):#This function
             ####################criteria from doi:10.5194/acp-16-2997-2016
                             if sk>=0. and w>2.:
                                 state[m]=-15.#graupel
-                    SnowRate[m] = np.nan
+                    SnowRate.append(np.nan)
                 
                         
                     
-                Value=10**18*lamb**4*deltavel*np.nansum(vector)/(np.pi**5*K2w)
+                Mmixed.append(NewM[m])
+                Value=10**18*lamb**4*deltavel*np.nansum(NewM[m])/(np.pi**5*K2w)
                 
-                Z_da[m] = np.nan
-                lwc[m] = np.nan
-                dm[m] = np.nan
-                nw[m] = np.nan
-                rr[m] = np.nan
-                N_da[m] = np.nan
-                N_D_T[m] = blank_nd.copy()
+                Z_da.append(np.nan)
+                lwc.append(np.nan)
+                dm.append(np.nan)
+                nw.append(np.nan)
+                rr.append(np.nan)
+                N_da.append(np.nan)
+                N_D_T.append(np.ones(len(D[m]))*np.nan)
                 
 
                 if mov[m]==-1:#case mixed and upward
-                      VerTur[m] = (.817*np.power(ValueZe,.063))-w
+                      VerTur.append((.817*np.power(ValueZe,.063))-w)
                 if mov[m]==1:#case mixed and downward
-                      VerTur[m] = w-(.817*np.power(ValueZe,.063))
+                      VerTur.append(w-(.817*np.power(ValueZe,.063)))
                 if np.isnan(mov[m]):
-                      VerTur[m] = np.nan
+                      VerTur.append(np.nan)
                             
+            else:
+                Mmixed.append(NullVector)
+                
             if np.isnan(state[m]):
-                Z_da[m] = np.nan
-                lwc[m] = np.nan
-                nw[m] = np.nan
-                dm[m] = np.nan
-                rr[m] = np.nan
-                N_da[m] = np.nan
-                N_D_T[m] = blank_nd
-                SnowRate[m] = np.nan
+                Mwater.append(NullVector)
+                Msnow.append(NullVector)
+                Mmixed.append(NullVector)
+                Mhail.append(NullVector)
+                MDriz.append(NullVector)
+                Munk.append(NullVector)
+                Mgrau.append(NullVector)
+                Z_da.append(np.nan)
+                lwc.append(np.nan)
+                nw.append(np.nan)
+                dm.append(np.nan)
+                rr.append(np.nan)
+                N_da.append(np.nan)
+                N_D_T.append(np.ones(len(D[m]))*np.nan)
+                SnowRate.append(np.nan)
 
-                VerTur[m] = np.nan
+                VerTur.append(np.nan)
 
 
                 
             if state[m]==20:#cas unknown
-                Value=10**18*lamb**4*deltavel*np.nansum(vector)/(np.pi**5*K2w)#use the rayleight estimation
+                Munk.append(NewM[m])
                 
-                Z_da[m] = np.nan
-                lwc[m] = np.nan
-                nw[m] = np.nan
-                dm[m] = np.nan
-                rr[m] = np.nan
-                N_da[m] = np.nan
-                N_D_T[m] = blank_nd
+                
+                Value=10**18*lamb**4*deltavel*np.nansum(NewM[m])/(np.pi**5*K2w)#use the rayleight estimation
+                
+                Z_da.append(np.nan)
+                lwc.append(np.nan)
+                nw.append(np.nan)
+                dm.append(np.nan)
+                rr.append(np.nan)
+                N_da.append(np.nan)
+                N_D_T.append(np.ones(len(D[m]))*np.nan)
 
 
-                SnowRate[m] = np.nan
+                SnowRate.append(np.nan)
+                Nde.append(np.ones(shape=(len(matrix[1])))*np.nan)
                 if mov[m]==-1:#case hail and upward, using the same for snow
-                      VerTur[m] = (.817*np.power(ValueZe,.063))-w
+                      VerTur.append((.817*np.power(ValueZe,.063))-w)
                 if mov[m]==1:#case hail and downward, using the same for snow
-                      VerTur[m] = w-(.817*np.power(ValueZe,.063))
+                      VerTur.append(w-(.817*np.power(ValueZe,.063)))
                 if np.isnan(mov[m]):
-                      VerTur[m] = np.nan
+                      VerTur.append(np.nan)
+                            
+            else:
+                Munk.append(NullVector)
                             
         for m in range(len(state)):
             if m!=0 and m!=len(state)-1:
@@ -1572,7 +1411,8 @@ def ScatExt(diameter,longW):#for 1 height gate
 
 
 def MrrProNoise2(vector,he,DifRange,limitTime):
-    v1=np.array(vector, copy=True)
+    v1=np.copy(vector)
+    v2=np.copy(vector)
 
     if np.isnan(vector).all():
         soroll=np.nan
@@ -1596,8 +1436,8 @@ def MrrProNoise2(vector,he,DifRange,limitTime):
                 condition=0
                 continue
 
-            meanv1 = np.nanmean(v1)
-            varv1 = np.nanvar(v1)
+            meanv1=np.nanmean(v1)
+            varv1=np.nanvar(v1)
             quo2=np.inf if varv1==0. else meanv1**2/varv1
             rate2=np.inf if meanv1==0. else np.nanmax(v1)/meanv1
 
@@ -1623,7 +1463,7 @@ def Continuity(vector,matrix,deltaH):#vector is the noise and matrix is the sign
     if deltaH<100:
         for i in range(len(vector)-4):
             
-            elem=np.full(len(matrix[i]), np.nan)
+            elem=np.ones(len(matrix[i]))
             s1=vector[i]
             s2=vector[i+1]
             s3=vector[i+2]
@@ -1632,32 +1472,32 @@ def Continuity(vector,matrix,deltaH):#vector is the noise and matrix is the sign
             if np.isnan(s1) and ~np.isnan(s2) and ~np.isnan(s3) and np.isnan(s4):
                 
                 vector[i+1]=np.nan
-                matrix[i+1]=elem.copy()
+                matrix[i+1]=elem*np.nan
                 vector[i+2]=np.nan
-                matrix[i+2]=elem.copy()
+                matrix[i+2]=elem*np.nan
             if np.isnan(s1) and ~np.isnan(s2) and np.isnan(s3) and np.isnan(s4):
                 
                 vector[i+1]=np.nan
-                matrix[i+1]=elem.copy()
+                matrix[i+1]=elem*np.nan
                 vector[i+2]=np.nan
-                matrix[i+2]=elem.copy()
+                matrix[i+2]=elem*np.nan
             if np.isnan(s1) and np.isnan(s2) and ~np.isnan(s3) and np.isnan(s4):
                 
                 vector[i+1]=np.nan
-                matrix[i+1]=elem.copy()
+                matrix[i+1]=elem*np.nan
                 vector[i+2]=np.nan
-                matrix[i+2]=elem.copy()
+                matrix[i+2]=elem*np.nan
 
     else:#delete spirous
         
         for i in range((len(vector)-3)):
-            elem=np.full(len(matrix[i]), np.nan)
+            elem=np.ones(len(matrix[i]))
             s1=vector[i]
             s2=vector[i+1]
             s3=vector[i+2]
             if np.isnan(s1) and ~np.isnan(s2) and np.isnan(s3):
                 vector[i+1]=np.nan
-                matrix[i+1]=elem
+                matrix[i+1]=elem*np.nan
 
 
     return vector,matrix
@@ -2596,5 +2436,6 @@ def unix2date(unix):
 #     dataset.close()
 #     Count_Cons=Count_Cons+1
             
+
 
 

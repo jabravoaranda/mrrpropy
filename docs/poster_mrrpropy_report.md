@@ -16,15 +16,15 @@ Arquitectura por modulos:
 
 - `mrrpropy/dataset.py`: fachada de alto nivel. Expone carga RAW, subsetting, perfiles, espectros, procesado, plots y analisis de procesos.
 - `mrrpropy/processing/raprompro.py`: wrapper xarray del nucleo cientifico RaProMPro. Convierte datos CF/Radial MRR-PRO en productos microfisicos.
-- `mrrpropy/RaProMPro_original.py`: implementacion cientifica original conservada como referencia.
-- `mrrpropy/RaProMPro_optimized.py`: implementacion optimizada usada por el wrapper canonico.
+- `mrrpropy/processing/RaProMPro_original.py`: implementacion cientifica original conservada como referencia.
+- `mrrpropy/processing/RaProMPro_optimized.py`: implementacion optimizada usada por el wrapper canonico.
 - `mrrpropy/analysis/trends.py`: tendencias verticales y metodos de ajuste.
 - `mrrpropy/analysis/rain_processes_classification.py`: analisis y clasificacion de procesos de lluvia.
 - `mrrpropy/analysis/classified_rain_process_metrics.py`: metricas por capa de procesos ya clasificados.
 - `mrrpropy/analysis/sliding.py`: aplicacion del analisis sobre ventanas verticales deslizantes, episodios y fusion.
 - `mrrpropy/analysis/rain_process_features.py`: construccion de rasgos microfisicos, espectrales y de contexto para procesos de lluvia.
 - `mrrpropy/hexagram.py`: generacion de hexagramas RGB, mapeo RGB a celdas y mascaras teoricas por proceso.
-- `mrrpropy/rain_process_info.py`: metadatos compartidos de procesos, firmas de clasificacion, codigos y marcadores.
+- `mrrpropy/processing/rain_process_info.py`: metadatos compartidos de procesos, firmas de clasificacion, codigos y marcadores.
 - `mrrpropy/plotting/`: funciones de visualizacion RAW, espectral, procesada y de procesos.
 - `mrrpropy/cli/main.py`: CLI minima (`mrrpropy version`).
 - `scripts/` y `workbench/scripts/`: cadenas reproducibles para procesar ficheros, generar quicklooks, analisis de capas y escaneos de columna.
@@ -123,7 +123,7 @@ La clasificacion usa el signo de las tendencias de `Dm`, `Nw` y `LWC`, con RGB s
 - `G = Nw`
 - `B = LWC`
 
-Firmas implementadas en `mrrpropy/rain_process_info.py`:
+Firmas implementadas en `mrrpropy/processing/rain_process_info.py`:
 
 | Proceso | Firma `(Dm, Nw, LWC)` |
 |---|---|
@@ -162,7 +162,7 @@ No existe un paquete fuente llamado literalmente `mrrpropy/rain_processes`; el n
 - `mrrpropy/analysis/sliding.py`: ventanas deslizantes, episodios y capas fusionadas.
 - `mrrpropy/analysis/rain_process_features.py`: extraccion de rasgos para clasificacion de procesos de lluvia.
 - `mrrpropy/hexagram.py`: RGB/hexagrama y mascaras teoricas por proceso.
-- `mrrpropy/rain_process_info.py`: firmas y metadatos de procesos.
+- `mrrpropy/processing/rain_process_info.py`: firmas y metadatos de procesos.
 - `mrrpropy/plotting/rain_processes.py`: figuras de procesos, hexagramas, cortinas de columna, scatter y quicklooks fusionados.
 - `mrrpropy/dataset.py`: metodos publicos que delegan en los modulos anteriores.
 
@@ -289,4 +289,5 @@ Busqueda acotada a `docs/`, `examples/` y `notebooks/`:
 | `docs/assets/hero_quicklook_ze.png` | PNG | 1600 x 800 px |
 
 No se encontraron ficheros `.jpg`, `.jpeg`, `.pdf` ni `.svg` en esas rutas. Tampoco existen carpetas versionadas `examples/` o `notebooks/` en la raiz del repositorio; el notebook existente esta en `mrrpropy/RGB_hexagram_tutorial_for_generation.ipynb`.
+
 

@@ -7,7 +7,7 @@ from typing import Any, Protocol
 import numpy as np
 import xarray as xr
 
-import mrrpropy.RaProMPro_optimized as rpm_optimized
+import mrrpropy.processing.RaProMPro_optimized as rpm_optimized
 
 
 class SupportsRaprompro(Protocol):
@@ -828,3 +828,4 @@ def load_raprompro(
         subject.raprompro = ds_rp
 
     return ds_rp
+

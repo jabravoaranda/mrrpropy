@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 import xarray as xr
 
-from mrrpropy.rain_process_info import PROCESS_SIGNATURES
+from mrrpropy.processing.rain_process_info import PROCESS_SIGNATURES
 
 # TODO: Split this module when hexagram work grows again. Natural boundaries:
 # RGB trend mapping, hexagram grid/assets, RGB-to-cell mapping, and process masks.
@@ -1036,4 +1036,5 @@ def plot_process_to_hexagram(
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
     return (fig, filepath) if savefig else fig
+
 
