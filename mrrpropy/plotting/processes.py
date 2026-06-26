@@ -990,6 +990,16 @@ def plot_column_process_scan(
     markersize = float(kwargs.get("markersize", 52.0))
     scale_by_strength = bool(kwargs.get("scale_by_strength", True))
     color_mode = str(kwargs.get("color_mode", "process")).lower()
+    event_process = kwargs.get("event_process", kwargs.get("process", None))
+    gaussian_points = int(kwargs.get("gaussian_points", 30))
+    gaussian_time_sigma_s = float(kwargs.get("gaussian_time_sigma_s", 45.0))
+    gaussian_height_sigma_m = float(kwargs.get("gaussian_height_sigma_m", 80.0))
+    gaussian_seed = kwargs.get("gaussian_seed", 0)
+    contour_top_n = int(kwargs.get("contour_top_n", 3))
+    contour_event_count = int(kwargs.get("contour_event_count", 50))
+    contour_bins = kwargs.get("contour_bins", (180, 120))
+    contour_sigma = float(kwargs.get("contour_sigma", 2.0))
+    contour_background = bool(kwargs.get("contour_background", True))
 
     if not isinstance(scan_df, pd.DataFrame):
         raise TypeError("scan_df must be a pandas DataFrame.")
@@ -999,8 +1009,14 @@ def plot_column_process_scan(
         raise KeyError(f"scan_df must contain columns: {missing}")
     if scan_df.empty:
         raise ValueError("scan_df is empty.")
-    if color_mode not in {"process", "hexagram"}:
-        raise ValueError("color_mode must be 'process' or 'hexagram'.")
+    if color_mode not in {"process", "hexagram", "event", "gaussian", "contour"}:
+        raise ValueError("color_mode must be 'process', 'hexagram', 'event', 'gaussian' or 'contour'.")
+    if color_mode == "event" and event_process is None:
+        raise ValueError("color_mode='event' requires event_process='process_name'.")
+    if color_mode == "gaussian" and gaussian_points < 1:
+        raise ValueError("gaussian_points must be >= 1.")
+    if color_mode == "contour" and (contour_top_n < 1 or contour_event_count < 1):
+        raise ValueError("contour_top_n and contour_event_count must be >= 1.")
 
     process_colors = kwargs.get(
         "process_colors",
@@ -1030,7 +1046,7 @@ def plot_column_process_scan(
         df = df[df["proc_label"].isin(selected_processes)].copy()
 
     hex_colors: np.ndarray | None = None
-    if color_mode == "hexagram":
+    if color_mode in {"hexagram", "gaussian"}:
         if {"hex_x", "hex_y"}.issubset(df.columns):
             k_attr = df.attrs.get("k", scan_df.attrs.get("k", None))
             if k_attr is not None:
@@ -1055,20 +1071,150 @@ def plot_column_process_scan(
                 ]
             )
 
+    event_intensity: np.ndarray | None = None
+    if color_mode == "event":
+        process_name = str(event_process)
+        signatures = PROCESS_SIGNATURES.get(process_name)
+        if signatures is None:
+            raise ValueError(f"Unknown event_process {process_name!r}.")
+        required_cols = {
+            "trend_sign_Dm",
+            "trend_sign_Nw",
+            "trend_sign_LWC",
+            "trend_strength_Dm",
+            "trend_strength_Nw",
+            "trend_strength_LWC",
+        }
+        missing_event_cols = sorted(required_cols.difference(df.columns))
+        if missing_event_cols:
+            raise KeyError(f"scan_df must contain columns for event mode: {missing_event_cols}")
+        signs = np.column_stack(
+            [
+                pd.to_numeric(df["trend_sign_Dm"], errors="coerce").to_numpy(dtype=float),
+                pd.to_numeric(df["trend_sign_Nw"], errors="coerce").to_numpy(dtype=float),
+                pd.to_numeric(df["trend_sign_LWC"], errors="coerce").to_numpy(dtype=float),
+            ]
+        )
+        strengths = np.column_stack(
+            [
+                pd.to_numeric(df["trend_strength_Dm"], errors="coerce").to_numpy(dtype=float),
+                pd.to_numeric(df["trend_strength_Nw"], errors="coerce").to_numpy(dtype=float),
+                pd.to_numeric(df["trend_strength_LWC"], errors="coerce").to_numpy(dtype=float),
+            ]
+        )
+        event_intensity = np.zeros(len(df), dtype=float)
+        finite_strength = np.isfinite(strengths).all(axis=1)
+        for signature in signatures:
+            sig = np.asarray(signature, dtype=float)
+            active = sig != 0
+            if not np.any(active):
+                continue
+            matched = np.all(signs[:, active] == sig[active], axis=1)
+            score = np.zeros(len(df), dtype=float)
+            valid = matched & finite_strength
+            score[valid] = np.min(strengths[valid][:, active], axis=1)
+            event_intensity = np.maximum(event_intensity, score)
+
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
-    excluded_labels = set() if processes is not None else {"unknown", "no_data"}
+    rng = np.random.default_rng(gaussian_seed) if color_mode == "gaussian" else None
+    excluded_labels = set() if processes is not None or color_mode == "event" else {"unknown", "no_data"}
     present_labels = [
         label
         for label in pd.unique(df["proc_label"])
         if label and label not in excluded_labels
     ]
 
+    def _gaussian_smooth_2d(values: np.ndarray, sigma: float) -> np.ndarray:
+        if sigma <= 0.0:
+            return values
+        radius = max(1, int(3.0 * sigma))
+        x_kernel = np.arange(-radius, radius + 1, dtype=float)
+        kernel = np.exp(-0.5 * (x_kernel / sigma) ** 2)
+        kernel = kernel / np.sum(kernel)
+        smoothed = np.apply_along_axis(
+            lambda row: np.convolve(row, kernel, mode="same"),
+            1,
+            values,
+        )
+        return np.apply_along_axis(
+            lambda col: np.convolve(col, kernel, mode="same"),
+            0,
+            smoothed,
+        )
+
     handles: list[Any] = []
+    if color_mode == "contour" and contour_background:
+        ax.scatter(
+            df["time"],
+            df["z_center_m"] / 1000.0,
+            s=float(kwargs.get("contour_background_size", 8.0)),
+            c=kwargs.get("contour_background_color", "#888888"),
+            alpha=float(kwargs.get("contour_background_alpha", 0.25)),
+            marker=".",
+            edgecolors="none",
+        )
+
     for label in present_labels:
         mask = df["proc_label"] == label
         if not mask.any():
             continue
-        process_marker = PROCESS_MARKERS.get(label, marker)
+        if color_mode == "contour":
+            group = df.loc[mask].copy()
+            x_values = mdates.date2num(group["time"].to_numpy())
+            y_values = group["z_center_m"].to_numpy(dtype=float) / 1000.0
+            finite = np.isfinite(x_values) & np.isfinite(y_values)
+            x_values = x_values[finite]
+            y_values = y_values[finite]
+            if x_values.size < contour_event_count:
+                continue
+
+            x_pad = max((float(np.nanmax(x_values)) - float(np.nanmin(x_values))) * 0.02, 1.0 / 1440.0)
+            y_pad = max((float(np.nanmax(y_values)) - float(np.nanmin(y_values))) * 0.05, 0.05)
+            x_range = (float(np.nanmin(x_values)) - x_pad, float(np.nanmax(x_values)) + x_pad)
+            y_range = (float(np.nanmin(y_values)) - y_pad, float(np.nanmax(y_values)) + y_pad)
+            hist, x_edges, y_edges = np.histogram2d(
+                x_values,
+                y_values,
+                bins=contour_bins,
+                range=(x_range, y_range),
+            )
+            density = _gaussian_smooth_2d(hist.T, contour_sigma)
+            if not np.isfinite(density).any() or float(np.nanmax(density)) <= 0.0:
+                continue
+
+            x_idx = np.clip(np.searchsorted(x_edges, x_values, side="right") - 1, 0, len(x_edges) - 2)
+            y_idx = np.clip(np.searchsorted(y_edges, y_values, side="right") - 1, 0, len(y_edges) - 2)
+            point_density = density[y_idx, x_idx]
+            point_density = point_density[np.isfinite(point_density) & (point_density > 0.0)]
+            if point_density.size < contour_event_count:
+                continue
+
+            x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
+            y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
+            grid_x, grid_y = np.meshgrid(x_centers, y_centers)
+            color = process_colors.get(label, "#333333")
+            for contour_index in range(contour_top_n):
+                target_count = contour_event_count * (contour_index + 1)
+                if target_count > point_density.size:
+                    break
+                threshold = np.sort(point_density)[::-1][target_count - 1]
+                if not np.isfinite(threshold) or threshold <= 0.0:
+                    continue
+                ax.contour(
+                    grid_x,
+                    grid_y,
+                    density,
+                    levels=[float(threshold)],
+                    colors=[color],
+                    linewidths=float(kwargs.get("contour_linewidth", 1.8)),
+                    alpha=max(0.25, float(kwargs.get("contour_alpha", 0.9)) - 0.18 * contour_index),
+                )
+            handles.append(
+                Line2D([0], [0], color=color, lw=float(kwargs.get("contour_linewidth", 1.8)), label=label)
+            )
+            continue
+
+        process_marker = marker if color_mode in {"hexagram", "event", "gaussian"} else PROCESS_MARKERS.get(label, marker)
         size = markersize
         if scale_by_strength and np.isfinite(df.loc[mask, "proc_strength"]).any():
             strength = df.loc[mask, "proc_strength"].fillna(0.0).clip(0.0, 1.0)
@@ -1076,17 +1222,22 @@ def plot_column_process_scan(
 
         scatter_kwargs: dict[str, Any] = {
             "s": size,
-            "alpha": alpha,
+            "alpha": float(kwargs.get("gaussian_alpha", 0.5)) if color_mode == "gaussian" else alpha,
             "marker": process_marker,
             "edgecolors": "none",
             "label": label,
         }
-        if color_mode == "hexagram" and hex_colors is not None:
+        if color_mode == "event" and event_intensity is not None:
+            scatter_kwargs["c"] = event_intensity[np.flatnonzero(mask.to_numpy())]
+            scatter_kwargs["cmap"] = kwargs.get("event_cmap", kwargs.get("cmap", "viridis"))
+            scatter_kwargs["vmin"] = float(kwargs.get("event_vmin", 0.0))
+            scatter_kwargs["vmax"] = float(kwargs.get("event_vmax", 1.0))
+        elif color_mode in {"hexagram", "gaussian"} and hex_colors is not None:
             colors = hex_colors[np.flatnonzero(mask.to_numpy())]
             finite_rgb = np.isfinite(colors).all(axis=1)
             if not np.any(finite_rgb):
                 scatter_kwargs["c"] = process_colors.get(label, "#333333")
-            else:
+            elif color_mode == "hexagram":
                 scatter_kwargs["c"] = colors[finite_rgb]
                 time_values = df.loc[mask, "time"].to_numpy()[finite_rgb]
                 height_values = (df.loc[mask, "z_center_m"].to_numpy()[finite_rgb]) / 1000.0
@@ -1097,15 +1248,60 @@ def plot_column_process_scan(
                 )
                 handles.append(scatter)
                 continue
+            else:
+                scatter_kwargs["c"] = colors
         else:
             scatter_kwargs["c"] = process_colors.get(label, "#333333")
 
-        scatter = ax.scatter(
-            df.loc[mask, "time"],
-            df.loc[mask, "z_center_m"] / 1000.0,
-            **scatter_kwargs,
-        )
+        if color_mode == "gaussian":
+            if rng is None:
+                raise RuntimeError("Gaussian random generator was not initialized.")
+            base_time = mdates.date2num(df.loc[mask, "time"].to_numpy())
+            base_height_km = df.loc[mask, "z_center_m"].to_numpy(dtype=float) / 1000.0
+            time_jitter_days = rng.normal(
+                0.0,
+                gaussian_time_sigma_s / 86400.0,
+                size=(base_time.size, gaussian_points),
+            )
+            height_jitter_km = rng.normal(
+                0.0,
+                gaussian_height_sigma_m / 1000.0,
+                size=(base_height_km.size, gaussian_points),
+            )
+            x_values = (base_time[:, None] + time_jitter_days).reshape(-1)
+            y_values = (base_height_km[:, None] + height_jitter_km).reshape(-1)
+            if np.ndim(size) > 0:
+                scatter_kwargs["s"] = np.repeat(np.asarray(size, dtype=float), gaussian_points)
+            if "c" in scatter_kwargs and np.ndim(scatter_kwargs["c"]) == 2:
+                scatter_kwargs["c"] = np.repeat(
+                    np.asarray(scatter_kwargs["c"], dtype=float),
+                    gaussian_points,
+                    axis=0,
+                )
+            scatter = ax.scatter(
+                mdates.num2date(x_values),
+                y_values,
+                **scatter_kwargs,
+            )
+        else:
+            scatter = ax.scatter(
+                df.loc[mask, "time"],
+                df.loc[mask, "z_center_m"] / 1000.0,
+                **scatter_kwargs,
+            )
         handles.append(scatter)
+
+    if color_mode == "event" and event_intensity is not None:
+        mappable = plt.cm.ScalarMappable(
+            norm=plt.Normalize(
+                vmin=float(kwargs.get("event_vmin", 0.0)),
+                vmax=float(kwargs.get("event_vmax", 1.0)),
+            ),
+            cmap=kwargs.get("event_cmap", kwargs.get("cmap", "viridis")),
+        )
+        cbar = fig.colorbar(mappable, ax=ax)
+        cbar.set_label(f"{event_process} intensity", fontsize=label_fs)
+        cbar.ax.tick_params(labelsize=tick_fs)
 
     ax.set_xlabel("Time", fontsize=label_fs)
     ax.set_ylabel("Height (km)", fontsize=label_fs)
@@ -1136,7 +1332,7 @@ def plot_column_process_scan(
     if y_limits is not None:
         ax.set_ylim(*y_limits)
 
-    if handles:
+    if handles and color_mode != "event":
         ax.legend(
             handles=handles,
             loc=kwargs.get("legend_loc", "upper left"),

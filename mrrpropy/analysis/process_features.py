@@ -230,6 +230,45 @@ def _spectral_moments_1d(
     return (v_mean, v_std, v_p10, v_p50, v_p90)
 
 
+def _spectral_moments_nd(
+    spectra: np.ndarray,
+    velocity: np.ndarray,
+) -> np.ndarray:
+    spectra = np.asarray(spectra, dtype=float)
+    velocity = np.asarray(velocity, dtype=float)
+    out_shape = spectra.shape[:-1]
+    out = np.full((*out_shape, 5), np.nan, dtype=float)
+
+    finite_velocity = np.isfinite(velocity)
+    if not np.any(finite_velocity):
+        return out
+
+    v = velocity[finite_velocity]
+    order = np.argsort(v)
+    v = v[order]
+    weights = spectra[..., finite_velocity][..., order]
+    weights = np.where(np.isfinite(weights) & (weights >= 0.0), weights, 0.0)
+
+    w_sum = np.sum(weights, axis=-1)
+    valid = np.isfinite(w_sum) & (w_sum > 0.0)
+    if not np.any(valid):
+        return out
+
+    mean = np.sum(weights * v, axis=-1) / w_sum
+    var = np.sum(weights * (v - mean[..., np.newaxis]) ** 2, axis=-1) / w_sum
+
+    out[..., 0] = np.where(valid, mean, np.nan)
+    out[..., 1] = np.where(valid & np.isfinite(var) & (var >= 0.0), np.sqrt(var), np.nan)
+
+    cdf = np.cumsum(weights, axis=-1) / w_sum[..., np.newaxis]
+    cdf = np.clip(cdf, 0.0, 1.0)
+    for out_index, percentile in enumerate((0.10, 0.50, 0.90), start=2):
+        idx = np.argmax(cdf >= percentile, axis=-1)
+        out[..., out_index] = np.where(valid, np.take(v, idx), np.nan)
+
+    return out
+
+
 def get_spectral_features(
     ds: xr.Dataset,
     *,
@@ -259,8 +298,6 @@ def get_spectral_features(
         raise KeyError(f"ds must contain coord '{range_coord}'.")
     if spectrum_var not in ds:
         raise KeyError(f"ds must contain variable '{spectrum_var}'.")
-    if velocity_coord not in ds.coords:
-        raise KeyError(f"ds must contain coord '{velocity_coord}'.")
 
     mode_value = str(mode).strip().lower()
     if mode_value not in {"fixed_layer", "scan"}:
@@ -272,6 +309,17 @@ def get_spectral_features(
         raise ValueError(
             f"ds['{spectrum_var}'] must have dims ('time','{range_coord}','{velocity_coord}')."
         )
+    if velocity_coord not in ds.coords:
+        spectral_velocity_coord = str(spectrum.dims[2])
+        if spectral_velocity_coord in ds.coords:
+            velocity_coord = spectral_velocity_coord
+        elif velocity_coord == "W" and "W" in ds:
+            raise KeyError(
+                "'W' is a Doppler velocity field, but spectral moments require "
+                f"the spectrum velocity coordinate '{spectral_velocity_coord}'."
+            )
+        else:
+            raise KeyError(f"ds must contain coord '{velocity_coord}'.")
     if spectrum.dims[2] != velocity_coord:
         raise ValueError(
             f"ds['{spectrum_var}'] must have velocity dimension '{velocity_coord}'."
@@ -357,43 +405,38 @@ def get_spectral_features(
     v_p90_top = _alloc()
     v_p90_bottom = _alloc()
 
-    for time_index in range(n_time):
-        for layer_index in range(n_layer):
-            zt = float(z_top_vals[layer_index])
-            zb = float(z_bottom_vals[layer_index])
-            if not (np.isfinite(zt) and np.isfinite(zb) and zt > zb):
-                continue
+    valid_layers = np.isfinite(z_top_vals) & np.isfinite(z_bottom_vals) & (z_top_vals > z_bottom_vals)
+    if np.any(valid_layers):
+        top_indices = np.array([_nearest_range_index(z) for z in z_top_vals[valid_layers]], dtype=int)
+        bottom_indices = np.array([_nearest_range_index(z) for z in z_bottom_vals[valid_layers]], dtype=int)
 
-            itop = _nearest_range_index(zt)
-            ibot = _nearest_range_index(zb)
+        top_stats = _spectral_moments_nd(spec_np[:, top_indices, :], vel)
+        bottom_stats = _spectral_moments_nd(spec_np[:, bottom_indices, :], vel)
 
-            top_stats = _spectral_moments_1d(spec_np[time_index, itop, :], vel)
-            bot_stats = _spectral_moments_1d(spec_np[time_index, ibot, :], vel)
+        if mode == "fixed_layer":
+            v_mean_top[:] = top_stats[:, 0, 0]
+            v_std_top[:] = top_stats[:, 0, 1]
+            v_p10_top[:] = top_stats[:, 0, 2]
+            v_p50_top[:] = top_stats[:, 0, 3]
+            v_p90_top[:] = top_stats[:, 0, 4]
 
-            if mode == "fixed_layer":
-                v_mean_top[time_index] = top_stats[0]
-                v_std_top[time_index] = top_stats[1]
-                v_p10_top[time_index] = top_stats[2]
-                v_p50_top[time_index] = top_stats[3]
-                v_p90_top[time_index] = top_stats[4]
+            v_mean_bottom[:] = bottom_stats[:, 0, 0]
+            v_std_bottom[:] = bottom_stats[:, 0, 1]
+            v_p10_bottom[:] = bottom_stats[:, 0, 2]
+            v_p50_bottom[:] = bottom_stats[:, 0, 3]
+            v_p90_bottom[:] = bottom_stats[:, 0, 4]
+        else:
+            v_mean_top[:, valid_layers] = top_stats[..., 0]
+            v_std_top[:, valid_layers] = top_stats[..., 1]
+            v_p10_top[:, valid_layers] = top_stats[..., 2]
+            v_p50_top[:, valid_layers] = top_stats[..., 3]
+            v_p90_top[:, valid_layers] = top_stats[..., 4]
 
-                v_mean_bottom[time_index] = bot_stats[0]
-                v_std_bottom[time_index] = bot_stats[1]
-                v_p10_bottom[time_index] = bot_stats[2]
-                v_p50_bottom[time_index] = bot_stats[3]
-                v_p90_bottom[time_index] = bot_stats[4]
-            else:
-                v_mean_top[time_index, layer_index] = top_stats[0]
-                v_std_top[time_index, layer_index] = top_stats[1]
-                v_p10_top[time_index, layer_index] = top_stats[2]
-                v_p50_top[time_index, layer_index] = top_stats[3]
-                v_p90_top[time_index, layer_index] = top_stats[4]
-
-                v_mean_bottom[time_index, layer_index] = bot_stats[0]
-                v_std_bottom[time_index, layer_index] = bot_stats[1]
-                v_p10_bottom[time_index, layer_index] = bot_stats[2]
-                v_p50_bottom[time_index, layer_index] = bot_stats[3]
-                v_p90_bottom[time_index, layer_index] = bot_stats[4]
+            v_mean_bottom[:, valid_layers] = bottom_stats[..., 0]
+            v_std_bottom[:, valid_layers] = bottom_stats[..., 1]
+            v_p10_bottom[:, valid_layers] = bottom_stats[..., 2]
+            v_p50_bottom[:, valid_layers] = bottom_stats[..., 3]
+            v_p90_bottom[:, valid_layers] = bottom_stats[..., 4]
 
     out["v_mean_top"] = xr.DataArray(v_mean_top, dims=out_dims)
     out["v_mean_bottom"] = xr.DataArray(v_mean_bottom, dims=out_dims)
