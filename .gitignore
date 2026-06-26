@@ -64,6 +64,7 @@ tests/generated/**
 tests/data/PRODUCTS/**
 !tests/data/PRODUCTS/.gitkeep
 tests/data/PRODUCT_SUBSETS/**
+tests/
 
 # Translations
 *.mo
@@ -220,3 +221,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Data files (this should keep the example nc.)
+*.nc
+
+# Workbench--these are personal tests and changes.
+/Workbench

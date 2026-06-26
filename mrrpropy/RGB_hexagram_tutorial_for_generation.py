@@ -26,10 +26,9 @@ from matplotlib.colors import LinearSegmentedColormap
 # In[2]:
 
 
-from generate_rgb_hex import generate_rgb_hex
+from hexagram import generate_rgb_hex
 
 # input RGB hexagram size parameter
-k = 2
 
 # generate RGB hexagram array-> r_hex:Red data, g_hex:Green data, b_data:Blue data, num_hex:Area data
 # r,g,b_hex array data between 0 to 1, num_hex data between 1 to 15

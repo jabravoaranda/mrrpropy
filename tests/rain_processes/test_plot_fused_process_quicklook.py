@@ -101,7 +101,7 @@ def test_plot_fused_process_quicklook_savefig(scan_df, fused_df, artifact_dir: P
 
     output_dir = _scan_artifact_dir(artifact_dir)
 
-    fig, path = plot_fused_process_quicklook(
+    fig, _, path = plot_fused_process_quicklook(
         scan_df,
         fused_df,
         processes=QUICKLOOK_PROCESSES,
@@ -119,7 +119,7 @@ def test_plot_fused_process_quicklook_savefig(scan_df, fused_df, artifact_dir: P
 
 
 def test_plot_fused_process_quicklook_returns_none_path_by_default(scan_df, fused_df):
-    fig, path = plot_fused_process_quicklook(scan_df, fused_df)
+    fig, _, path = plot_fused_process_quicklook(scan_df, fused_df)
     assert isinstance(fig, Figure)
     assert path is None
     plt.close(fig)
@@ -131,14 +131,16 @@ def test_plot_fused_process_quicklook_processes_filter(scan_df, fused_df):
 
     first_label = str(pd.unique(fused_df["proc_label_fused"].astype(str))[0])
 
-    fig_keep, _ = plot_fused_process_quicklook(
+    fig_keep, _, _ = plot_fused_process_quicklook(
         scan_df, fused_df, processes=[first_label]
     )
     assert len(fig_keep.axes[0].patches) >= 1
     plt.close(fig_keep)
 
-    fig_drop, _ = plot_fused_process_quicklook(
+    fig_drop, _, _ = plot_fused_process_quicklook(
         scan_df, fused_df, processes=["__no_such_process__"]
     )
     assert len(fig_drop.axes[0].patches) == 0
     plt.close(fig_drop)
+
+

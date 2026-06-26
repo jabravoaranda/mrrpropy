@@ -415,3 +415,5 @@ def test_detect_column_process_episodes_from_scan():
     assert episodes.loc[0, "proc_label"] == "evaporation"
     assert episodes.loc[0, "n_profiles"] == 6
     assert episodes.loc[0, "duration_seconds"] == pytest.approx(60.0)
+
+

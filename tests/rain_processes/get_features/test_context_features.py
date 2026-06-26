@@ -68,3 +68,5 @@ def test_get_context_scan_uses_z_center_as_layer_coord():
     assert bool(features["overlaps_bb"].values[0, 1]) is False
     assert float(features["dist_bb_peak"].values[0, 0]) == -50.0
     assert float(features["dist_bb_peak"].values[0, 1]) == 150.0
+
+

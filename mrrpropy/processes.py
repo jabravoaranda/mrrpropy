@@ -30,7 +30,6 @@ PROCESS_CODES: dict[str, str] = {
     "activation": "ACTIV.",
 }
 
-
 PROCESS_MARKERS: dict[str, str] = {
     "breakup": "s",
     "growth_depletion": "o",

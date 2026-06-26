@@ -20,7 +20,7 @@ def test_process_height_plots_use_dataset_range_by_default(
         float(ds["range"].values.max() / 1000.0),
     )
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -44,7 +44,7 @@ def test_process_height_plots_allow_user_y_limits(
 ):
     expected = (0.8, 2.4)
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
             period=(
                 datetime(2025, 10, 29, 19, 23, 0),
@@ -63,3 +63,5 @@ def test_process_height_plots_allow_user_y_limits(
     assert path is not None
     assert tuple(round(value, 6) for value in fig.axes[0].get_ylim()) == expected
     plt.close(fig)
+
+

@@ -84,3 +84,5 @@ def test_gate_spectrum(raw_mrr):
     vel_raw, spec_raw = raw_mrr.gate_spectrum(time_idx=0, range_idx=0, use_raw=True)
     assert vel_raw.shape == vel.shape
     assert spec_raw.shape == spec.shape
+
+

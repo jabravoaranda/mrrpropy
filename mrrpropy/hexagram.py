@@ -907,7 +907,7 @@ def plot_process_to_hexagram(
     savefig: bool = False,
     output_dir: str | Path | None = None,
     dpi: int = 200,
-) -> tuple[plt.Figure, Path | None] | plt.Figure:
+) -> tuple[plt.Figure, plt.Axes, Path | None]:
     """
     Pinta el espacio del hexagrama correspondiente a un proceso microfísico.
 
@@ -947,8 +947,10 @@ def plot_process_to_hexagram(
     -------
     fig : matplotlib.figure.Figure
         Figura creada.
-    filepath : pathlib.Path, optional
-        Solo si savefig=True.
+    ax : matplotlib.axes.Axes
+        Axes created for the hexagram.
+    filepath : pathlib.Path | None
+        Path to the saved figure if savefig=True, otherwise None.
     """
     mask2d, hex_assets = get_process_hexagram_mask(
         process,
@@ -1027,5 +1029,5 @@ def plot_process_to_hexagram(
         filepath = output_dir / f"hexagram_process_{safe_process}_k{k}_tol{safe_tol}.png"
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
-    return (fig, filepath) if savefig else fig
+    return fig, ax, filepath
 

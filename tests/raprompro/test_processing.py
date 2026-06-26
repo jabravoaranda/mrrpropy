@@ -227,3 +227,5 @@ def test_process_raprompro_generated_visual_comparison(
             bbox_inches="tight",
         )
         plt.close(fig)
+
+

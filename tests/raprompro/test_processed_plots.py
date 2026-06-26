@@ -115,7 +115,7 @@ def test_plot_microphysical_properties_profiles_runs(
 def test_plot_dealiased_spectrogram(raprompro_subset_10min_loaded_mrr, artifact_dir):
     pytest.importorskip("matplotlib")
 
-    fig, filepath = raprompro_subset_10min_loaded_mrr.plot_spectrogram(
+    fig, _, filepath = raprompro_subset_10min_loaded_mrr.plot_spectrogram(
         target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
         spectrum_var="spe_3D",
         savefig=True,
@@ -171,7 +171,7 @@ def test_dealiased_spectrogram_converts_legacy_positive_downward_speed():
 def test_plot_dsdgram(raprompro_subset_10min_loaded_mrr, artifact_dir):
     pytest.importorskip("matplotlib")
 
-    fig, filepath = raprompro_subset_10min_loaded_mrr.plot_DSDgram(
+    fig, _, filepath = raprompro_subset_10min_loaded_mrr.plot_DSDgram(
         target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
         savefig=True,
         output_dir=artifact_dir,
@@ -185,7 +185,7 @@ def test_plot_dsdgram(raprompro_subset_10min_loaded_mrr, artifact_dir):
 
 
 def test_plot_dsd_by_range(raprompro_subset_10min_loaded_mrr, artifact_dir):
-    fig, filepath = raprompro_subset_10min_loaded_mrr.plot_DSD_by_range(
+    fig, _, filepath = raprompro_subset_10min_loaded_mrr.plot_DSD_by_range(
         target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
         ranges=np.arange(500, 2500, 250),
         savefig=True,
@@ -197,3 +197,5 @@ def test_plot_dsd_by_range(raprompro_subset_10min_loaded_mrr, artifact_dir):
     assert filepath is not None
     assert filepath.exists()
     plt.close(fig)
+
+

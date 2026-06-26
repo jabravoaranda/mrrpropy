@@ -1,11 +1,15 @@
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import matplotlib
 import matplotlib.pyplot as plt
 import pytest
 from matplotlib.figure import Figure
+import numpy as np
 import pandas as pd
+
+from mrrpropy.plotting import processes as process_plotting
 
 matplotlib.use("Agg")
 
@@ -46,6 +50,49 @@ def _scan_artifact_dir(artifact_dir: Path) -> Path:
     return path
 
 
+def test_plot_column_process_scan_marker_mode_square():
+    subject = SimpleNamespace(
+        plot_cfg=SimpleNamespace(dpi=100, figsize_profiles=(6, 4)),
+        raprompro=None,
+    )
+    scan_df = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2025-10-29 19:23", "2025-10-29 19:24"]),
+            "z_center_m": [1000.0, 1100.0],
+            "proc_label": ["breakup", "growth_depletion"],
+            "proc_strength": [1.0, 1.0],
+        }
+    )
+
+    fig_process, _, _ = process_plotting.plot_column_process_scan(
+        subject,
+        scan_df=scan_df,
+        marker_mode="process",
+        scale_by_strength=False,
+    )
+    fig_square, _, _ = process_plotting.plot_column_process_scan(
+        subject,
+        scan_df=scan_df,
+        marker_mode="square",
+        scale_by_strength=False,
+    )
+
+    process_paths = [
+        collection.get_paths()[0].vertices
+        for collection in fig_process.axes[0].collections
+    ]
+    square_paths = [
+        collection.get_paths()[0].vertices
+        for collection in fig_square.axes[0].collections
+    ]
+
+    assert not np.array_equal(process_paths[0], process_paths[1])
+    assert np.array_equal(square_paths[0], square_paths[1])
+
+    plt.close(fig_process)
+    plt.close(fig_square)
+
+
 def test_plot_column_process_scan(raprompro_subset_10min_loaded_mrr, artifact_dir):
     output_dir = _scan_artifact_dir(artifact_dir)
     scan_df = raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
@@ -59,7 +106,7 @@ def test_plot_column_process_scan(raprompro_subset_10min_loaded_mrr, artifact_di
         min_tau_strength=MIN_TAU_STRENGTH,
     )
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=scan_df,
         savefig=True,
         output_dir=output_dir,
@@ -104,12 +151,13 @@ def test_plot_column_process_scan_selected_processes(
     if not selected_processes:
         pytest.skip("No identified processes are available in this fixture.")
 
-    fig_all, _ = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
+    fig_all, _, _ = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=scan_df,
         figsize=(10, 6),
     )
     (
         fig_selected,
+        ax_selected,
         path_selected,
     ) = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=scan_df,
@@ -120,7 +168,7 @@ def test_plot_column_process_scan_selected_processes(
     )
 
     legend_all = fig_all.axes[0].get_legend()
-    legend_selected = fig_selected.axes[0].get_legend()
+    legend_selected = ax_selected.get_legend()
     assert legend_all is not None
     assert legend_selected is not None
     labels_all = {text.get_text() for text in legend_all.get_texts()}
@@ -152,7 +200,7 @@ def test_plot_column_process_scan_hexagram_colors(
         min_tau_strength=MIN_TAU_STRENGTH,
     )
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=scan_df,
         color_mode="hexagram",
         processes=[
@@ -202,7 +250,7 @@ def test_plot_scan_process_scatter_compare(
     if len(selected_processes) < 1:
         pytest.skip("No identified scan processes are available in this fixture.")
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_scan_process_scatter_compare(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_scan_process_scatter_compare(
         scan_df=scan_df,
         processes=selected_processes,
         show_centroids=True,
@@ -218,3 +266,5 @@ def test_plot_scan_process_scatter_compare(
     assert len(axes) >= 1
     assert len(axes[0].collections) >= 1
     plt.close(fig)
+
+
