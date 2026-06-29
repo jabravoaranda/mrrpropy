@@ -467,7 +467,7 @@ def _save_column_event_sliding(
     if not sliding_df_events.empty:
         fig, _ = mrr.plot_sliding_column_process(
             sliding_df=sliding_df_events,
-            color_mode="process",
+            color_mode="rain_signature",
             processes=[
                 "breakup",
                 "growth_depletion",

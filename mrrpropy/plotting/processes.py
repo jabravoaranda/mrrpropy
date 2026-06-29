@@ -989,7 +989,7 @@ def plot_sliding_column_process(
     marker = kwargs.get("marker", "s")
     markersize = float(kwargs.get("markersize", 52.0))
     scale_by_strength = bool(kwargs.get("scale_by_strength", True))
-    color_mode = str(kwargs.get("color_mode", "process")).lower()
+    color_mode = str(kwargs.get("color_mode", "rain_signature")).lower()
     event_process = kwargs.get("event_process", kwargs.get("process", None))
     gaussian_points = int(kwargs.get("gaussian_points", 30))
     gaussian_time_sigma_s = float(kwargs.get("gaussian_time_sigma_s", 45.0))
@@ -1009,8 +1009,10 @@ def plot_sliding_column_process(
         raise KeyError(f"sliding_df must contain columns: {missing}")
     if sliding_df.empty:
         raise ValueError("sliding_df is empty.")
-    if color_mode not in {"process", "hexagram", "event", "gaussian", "contour"}:
-        raise ValueError("color_mode must be 'process', 'hexagram', 'event', 'gaussian' or 'contour'.")
+    if color_mode not in {"rain_signature", "hexagram", "event", "gaussian", "contour"}:
+        raise ValueError(
+            "color_mode must be 'rain_signature', 'hexagram', 'event', 'gaussian' or 'contour'."
+        )
     if color_mode == "event" and event_process is None:
         raise ValueError("color_mode='event' requires event_process='process_name'.")
     if color_mode == "gaussian" and gaussian_points < 1:
