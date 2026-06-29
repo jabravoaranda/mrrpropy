@@ -13,7 +13,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.rain_process_classification.rain_process_info import PROCESS_CODES, PROCESS_MARKERS, PROCESS_SIGNATURES
+from mrrpropy.rain_process_classification.rain_process_info import (
+    PROCESS_CODES,
+    PROCESS_MARKERS,
+    PROCESS_SIGNATURES,
+)
+from mrrpropy.rain_process_classification.rain_process_algorithm import (
+    sliding_rain_classification_to_dataframe,
+)
 from mrrpropy.rain_process_classification.hexagram import (
     get_hexagram_assets,
     get_process_hexagram_mask,
@@ -25,7 +32,8 @@ class SupportsProcessPlotting(Protocol):
     raprompro: xr.Dataset | None
     plot_cfg: Any
 
-    def _is_processed(self) -> bool: ...
+    def _is_processed(self) -> bool:
+        ...
 
 
 def _resolve_processed_dataset(subject: SupportsProcessPlotting) -> xr.Dataset:
@@ -56,7 +64,9 @@ def _resolve_height_limits_km(
     return float(np.min(finite)), float(np.max(finite))
 
 
-def _layer_bounds_from_attrs(attrs: dict[str, Any]) -> tuple[float | None, float | None]:
+def _layer_bounds_from_attrs(
+    attrs: dict[str, Any]
+) -> tuple[float | None, float | None]:
     z_bottom_m = attrs.get("z_bottom_m", attrs.get("z_top", None))
     z_top_m = attrs.get("z_top_m", attrs.get("z_base", None))
     if z_bottom_m is None or z_top_m is None:
@@ -103,9 +113,9 @@ def _select_layer_event_data(
         data = data - data.sel(range=top_range)
 
     data.attrs["profile_reference"] = "top_of_layer"
-    data.attrs["profile_direction"] = (
-        "positive means increase while descending from the top of the layer"
-    )
+    data.attrs[
+        "profile_direction"
+    ] = "positive means increase while descending from the top of the layer"
 
     return data
 
@@ -257,7 +267,9 @@ def _plot_layer_scatter(
     elif processes is not None:
         if classified is None:
             raise TypeError("classified must be provided when filtering by processes.")
-        data = _filter_data_by_processes(data, classified=classified, processes=processes)
+        data = _filter_data_by_processes(
+            data, classified=classified, processes=processes
+        )
         data = data.sortby("time")
 
     limits_source = full_data if process is not None else data
@@ -299,8 +311,22 @@ def _plot_layer_scatter(
         y_values = y_values[finite_xy]
         if x_values.size:
             ax.plot(x_values, y_values, color="black", linewidth=0.8, alpha=0.6)
-            ax.scatter(x_values[0], y_values[0], c="black", marker="^", s=markersize, label="start")
-            ax.scatter(x_values[-1], y_values[-1], c="black", marker="s", s=markersize, label="end")
+            ax.scatter(
+                x_values[0],
+                y_values[0],
+                c="black",
+                marker="^",
+                s=markersize,
+                label="start",
+            )
+            ax.scatter(
+                x_values[-1],
+                y_values[-1],
+                c="black",
+                marker="s",
+                s=markersize,
+                label="end",
+            )
             ax.legend(loc="best", fontsize=kwargs.get("legend_fs", 11))
     ax.set_xlabel(x)
     ax.set_ylabel(y)
@@ -437,7 +463,9 @@ def _plot_vertical_percent_profiles(
                 linewidth=0,
             )
 
-        finite = np.concatenate([median[np.isfinite(median)], q25[np.isfinite(q25)], q75[np.isfinite(q75)]])
+        finite = np.concatenate(
+            [median[np.isfinite(median)], q25[np.isfinite(q25)], q75[np.isfinite(q75)]]
+        )
         if finite.size:
             x_limits.append(float(np.nanmax(np.abs(finite))))
 
@@ -449,7 +477,9 @@ def _plot_vertical_percent_profiles(
         pad=12,
     )
     n_points = int(data.sizes.get("time", 0))
-    info_text = f"event | n={n_points}" if process is None else f"{process} | n={n_points}"
+    info_text = (
+        f"event | n={n_points}" if process is None else f"{process} | n={n_points}"
+    )
     ax.text(
         0.02,
         0.98,
@@ -474,7 +504,9 @@ def _plot_vertical_percent_profiles(
     ax.tick_params(labelsize=tick_fs)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.4)
     ax.axvline(0.0, color="black", linestyle="--", linewidth=1.0)
-    ax.legend(loc=kwargs.get("legend_loc", "best"), fontsize=kwargs.get("legend_fs", 11))
+    ax.legend(
+        loc=kwargs.get("legend_loc", "best"), fontsize=kwargs.get("legend_fs", 11)
+    )
 
     output_path: Path | None = None
     if savefig:
@@ -573,7 +605,9 @@ def plot_region_scatter(
     resolved_layer = layer
     if resolved_layer is None:
         if z_bottom_m is None or z_top_m is None:
-            raise ValueError("plot_region_scatter requires either layer or z_bottom_m/z_top_m.")
+            raise ValueError(
+                "plot_region_scatter requires either layer or z_bottom_m/z_top_m."
+            )
         resolved_layer = (float(z_bottom_m), float(z_top_m))
 
     return _plot_layer_scatter(
@@ -694,7 +728,9 @@ def plot_rain_process_in_layer_hexagram(
     alpha = kwargs.get("alpha", pcfg.alpha_points)
 
     if analysis is None or not isinstance(analysis, xr.Dataset):
-        raise TypeError("analysis debe ser un xr.Dataset (salida de layer_rain_classification).")
+        raise TypeError(
+            "analysis debe ser un xr.Dataset (salida de layer_rain_classification)."
+        )
 
     required = ("hex_x", "hex_y", "minutes", "R", "G", "B")
     missing = [v for v in required if v not in analysis]
@@ -710,7 +746,9 @@ def plot_rain_process_in_layer_hexagram(
     hy = analysis["hex_y"].values.astype(float)
     minutes = analysis["minutes"].values.astype(float)
 
-    if use_snapped_colors and all(v in analysis for v in ("snap_R", "snap_G", "snap_B")):
+    if use_snapped_colors and all(
+        v in analysis for v in ("snap_R", "snap_G", "snap_B")
+    ):
         colors = np.stack(
             [
                 analysis["snap_R"].values,
@@ -792,7 +830,9 @@ def plot_rain_process_in_layer_hexagram(
             if (z_bottom_m is not None and z_top_m is not None)
             else "layer"
         )
-        filepath = outdir / f"rain_process_hex_{safe_t0}_{safe_t1}_{safe_layer}_k{k}.png"
+        filepath = (
+            outdir / f"rain_process_hex_{safe_t0}_{safe_t1}_{safe_layer}_k{k}.png"
+        )
         fig.savefig(filepath, dpi=dpi)
 
     return fig, filepath
@@ -853,7 +893,11 @@ def plot_processes_evolution(
         raise ValueError("classified no contiene tiempos tras el alineamiento.")
 
     row_labels = ["R", "G", "B"]
-    rgb_map = analysis.attrs.get("rgb_mapping", None) if analysis is not None else classified.attrs.get("rgb_mapping", None)
+    rgb_map = (
+        analysis.attrs.get("rgb_mapping", None)
+        if analysis is not None
+        else classified.attrs.get("rgb_mapping", None)
+    )
     if isinstance(rgb_map, dict) and all(k in rgb_map for k in ("R", "G", "B")):
         row_labels = [
             f"R ({rgb_map['R']})",
@@ -871,7 +915,9 @@ def plot_processes_evolution(
     if len(unique_labels) > 26:
         raise ValueError("Hay más de 26 categorías de proceso; A,B,C... ya no basta.")
 
-    map_code = {label: PROCESS_CODES.get(label, label.upper()) for label in unique_labels}
+    map_code = {
+        label: PROCESS_CODES.get(label, label.upper()) for label in unique_labels
+    }
     y_index = np.array([unique_labels.index(label) for label in labels], dtype=int)
 
     fig = plt.figure(figsize=figsize)
@@ -903,7 +949,9 @@ def plot_processes_evolution(
     ax_timeline.set_title("(a) Process timeline (color = strength)", fontsize=title_fs)
     ax_timeline.set_ylabel("Process", fontsize=label_fs)
     ax_timeline.set_yticks(range(len(unique_labels)))
-    ax_timeline.set_yticklabels([map_code[label] for label in unique_labels], fontsize=tick_fs)
+    ax_timeline.set_yticklabels(
+        [map_code[label] for label in unique_labels], fontsize=tick_fs
+    )
     ax_timeline.tick_params(labelsize=tick_fs)
 
     cb1 = fig.colorbar(scatter, cax=cax_timeline)
@@ -972,13 +1020,13 @@ def plot_processes_evolution(
 def plot_sliding_column_process(
     subject: SupportsProcessPlotting,
     *,
-    sliding_df: pd.DataFrame,
+    sliding_df: xr.Dataset | pd.DataFrame,
     processes: list[str] | None = None,
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
 ) -> tuple[Figure, Path | None]:
-    """Plot a time-height curtain of process labels from a sliding column dataframe."""
+    """Plot a time-range curtain of process labels from sliding classification."""
     pcfg = subject.plot_cfg
     figsize = kwargs.get("figsize", getattr(pcfg, "figsize_profiles", (14, 8)))
     dpi = kwargs.get("dpi", pcfg.dpi)
@@ -1001,9 +1049,12 @@ def plot_sliding_column_process(
     contour_sigma = float(kwargs.get("contour_sigma", 2.0))
     contour_background = bool(kwargs.get("contour_background", True))
 
+    sliding_attrs = dict(getattr(sliding_df, "attrs", {}))
+    if isinstance(sliding_df, xr.Dataset):
+        sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
     if not isinstance(sliding_df, pd.DataFrame):
-        raise TypeError("sliding_df must be a pandas DataFrame.")
-    required = {"time", "z_center_m", "proc_label"}
+        raise TypeError("sliding_df must be an xr.Dataset or pandas DataFrame.")
+    required = {"time", "range", "proc_label"}
     missing = sorted(required.difference(sliding_df.columns))
     if missing:
         raise KeyError(f"sliding_df must contain columns: {missing}")
@@ -1044,7 +1095,9 @@ def plot_sliding_column_process(
     else:
         df["proc_strength"] = np.nan
     if processes is not None:
-        selected_processes = {str(process) for process in processes if process is not None}
+        selected_processes = {
+            str(process) for process in processes if process is not None
+        }
         df = df[df["proc_label"].isin(selected_processes)].copy()
 
     hex_colors: np.ndarray | None = None
@@ -1089,19 +1142,33 @@ def plot_sliding_column_process(
         }
         missing_event_cols = sorted(required_cols.difference(df.columns))
         if missing_event_cols:
-            raise KeyError(f"sliding_df must contain columns for event mode: {missing_event_cols}")
+            raise KeyError(
+                f"sliding_df must contain columns for event mode: {missing_event_cols}"
+            )
         signs = np.column_stack(
             [
-                pd.to_numeric(df["trend_sign_Dm"], errors="coerce").to_numpy(dtype=float),
-                pd.to_numeric(df["trend_sign_Nw"], errors="coerce").to_numpy(dtype=float),
-                pd.to_numeric(df["trend_sign_LWC"], errors="coerce").to_numpy(dtype=float),
+                pd.to_numeric(df["trend_sign_Dm"], errors="coerce").to_numpy(
+                    dtype=float
+                ),
+                pd.to_numeric(df["trend_sign_Nw"], errors="coerce").to_numpy(
+                    dtype=float
+                ),
+                pd.to_numeric(df["trend_sign_LWC"], errors="coerce").to_numpy(
+                    dtype=float
+                ),
             ]
         )
         strengths = np.column_stack(
             [
-                pd.to_numeric(df["trend_strength_Dm"], errors="coerce").to_numpy(dtype=float),
-                pd.to_numeric(df["trend_strength_Nw"], errors="coerce").to_numpy(dtype=float),
-                pd.to_numeric(df["trend_strength_LWC"], errors="coerce").to_numpy(dtype=float),
+                pd.to_numeric(df["trend_strength_Dm"], errors="coerce").to_numpy(
+                    dtype=float
+                ),
+                pd.to_numeric(df["trend_strength_Nw"], errors="coerce").to_numpy(
+                    dtype=float
+                ),
+                pd.to_numeric(df["trend_strength_LWC"], errors="coerce").to_numpy(
+                    dtype=float
+                ),
             ]
         )
         event_intensity = np.zeros(len(df), dtype=float)
@@ -1119,7 +1186,11 @@ def plot_sliding_column_process(
 
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     rng = np.random.default_rng(gaussian_seed) if color_mode == "gaussian" else None
-    excluded_labels = set() if processes is not None or color_mode == "event" else {"unknown", "no_data"}
+    excluded_labels = (
+        set()
+        if processes is not None or color_mode == "event"
+        else {"unknown", "no_data"}
+    )
     present_labels = [
         label
         for label in pd.unique(df["proc_label"])
@@ -1148,7 +1219,7 @@ def plot_sliding_column_process(
     if color_mode == "contour" and contour_background:
         ax.scatter(
             df["time"],
-            df["z_center_m"] / 1000.0,
+            df["range"] / 1000.0,
             s=float(kwargs.get("contour_background_size", 8.0)),
             c=kwargs.get("contour_background_color", "#888888"),
             alpha=float(kwargs.get("contour_background_alpha", 0.25)),
@@ -1163,17 +1234,28 @@ def plot_sliding_column_process(
         if color_mode == "contour":
             group = df.loc[mask].copy()
             x_values = mdates.date2num(group["time"].to_numpy())
-            y_values = group["z_center_m"].to_numpy(dtype=float) / 1000.0
+            y_values = group["range"].to_numpy(dtype=float) / 1000.0
             finite = np.isfinite(x_values) & np.isfinite(y_values)
             x_values = x_values[finite]
             y_values = y_values[finite]
             if x_values.size < contour_event_count:
                 continue
 
-            x_pad = max((float(np.nanmax(x_values)) - float(np.nanmin(x_values))) * 0.02, 1.0 / 1440.0)
-            y_pad = max((float(np.nanmax(y_values)) - float(np.nanmin(y_values))) * 0.05, 0.05)
-            x_range = (float(np.nanmin(x_values)) - x_pad, float(np.nanmax(x_values)) + x_pad)
-            y_range = (float(np.nanmin(y_values)) - y_pad, float(np.nanmax(y_values)) + y_pad)
+            x_pad = max(
+                (float(np.nanmax(x_values)) - float(np.nanmin(x_values))) * 0.02,
+                1.0 / 1440.0,
+            )
+            y_pad = max(
+                (float(np.nanmax(y_values)) - float(np.nanmin(y_values))) * 0.05, 0.05
+            )
+            x_range = (
+                float(np.nanmin(x_values)) - x_pad,
+                float(np.nanmax(x_values)) + x_pad,
+            )
+            y_range = (
+                float(np.nanmin(y_values)) - y_pad,
+                float(np.nanmax(y_values)) + y_pad,
+            )
             hist, x_edges, y_edges = np.histogram2d(
                 x_values,
                 y_values,
@@ -1184,10 +1266,20 @@ def plot_sliding_column_process(
             if not np.isfinite(density).any() or float(np.nanmax(density)) <= 0.0:
                 continue
 
-            x_idx = np.clip(np.searchsorted(x_edges, x_values, side="right") - 1, 0, len(x_edges) - 2)
-            y_idx = np.clip(np.searchsorted(y_edges, y_values, side="right") - 1, 0, len(y_edges) - 2)
+            x_idx = np.clip(
+                np.searchsorted(x_edges, x_values, side="right") - 1,
+                0,
+                len(x_edges) - 2,
+            )
+            y_idx = np.clip(
+                np.searchsorted(y_edges, y_values, side="right") - 1,
+                0,
+                len(y_edges) - 2,
+            )
             point_density = density[y_idx, x_idx]
-            point_density = point_density[np.isfinite(point_density) & (point_density > 0.0)]
+            point_density = point_density[
+                np.isfinite(point_density) & (point_density > 0.0)
+            ]
             if point_density.size < contour_event_count:
                 continue
 
@@ -1209,14 +1301,27 @@ def plot_sliding_column_process(
                     levels=[float(threshold)],
                     colors=[color],
                     linewidths=float(kwargs.get("contour_linewidth", 1.8)),
-                    alpha=max(0.25, float(kwargs.get("contour_alpha", 0.9)) - 0.18 * contour_index),
+                    alpha=max(
+                        0.25,
+                        float(kwargs.get("contour_alpha", 0.9)) - 0.18 * contour_index,
+                    ),
                 )
             handles.append(
-                Line2D([0], [0], color=color, lw=float(kwargs.get("contour_linewidth", 1.8)), label=label)
+                Line2D(
+                    [0],
+                    [0],
+                    color=color,
+                    lw=float(kwargs.get("contour_linewidth", 1.8)),
+                    label=label,
+                )
             )
             continue
 
-        process_marker = marker if color_mode in {"hexagram", "event", "gaussian"} else PROCESS_MARKERS.get(label, marker)
+        process_marker = (
+            marker
+            if color_mode in {"hexagram", "event", "gaussian"}
+            else PROCESS_MARKERS.get(label, marker)
+        )
         size = markersize
         if scale_by_strength and np.isfinite(df.loc[mask, "proc_strength"]).any():
             strength = df.loc[mask, "proc_strength"].fillna(0.0).clip(0.0, 1.0)
@@ -1224,14 +1329,18 @@ def plot_sliding_column_process(
 
         scatter_kwargs: dict[str, Any] = {
             "s": size,
-            "alpha": float(kwargs.get("gaussian_alpha", 0.5)) if color_mode == "gaussian" else alpha,
+            "alpha": float(kwargs.get("gaussian_alpha", 0.5))
+            if color_mode == "gaussian"
+            else alpha,
             "marker": process_marker,
             "edgecolors": "none",
             "label": label,
         }
         if color_mode == "event" and event_intensity is not None:
             scatter_kwargs["c"] = event_intensity[np.flatnonzero(mask.to_numpy())]
-            scatter_kwargs["cmap"] = kwargs.get("event_cmap", kwargs.get("cmap", "viridis"))
+            scatter_kwargs["cmap"] = kwargs.get(
+                "event_cmap", kwargs.get("cmap", "viridis")
+            )
             scatter_kwargs["vmin"] = float(kwargs.get("event_vmin", 0.0))
             scatter_kwargs["vmax"] = float(kwargs.get("event_vmax", 1.0))
         elif color_mode in {"hexagram", "gaussian"} and hex_colors is not None:
@@ -1242,7 +1351,7 @@ def plot_sliding_column_process(
             elif color_mode == "hexagram":
                 scatter_kwargs["c"] = colors[finite_rgb]
                 time_values = df.loc[mask, "time"].to_numpy()[finite_rgb]
-                height_values = (df.loc[mask, "z_center_m"].to_numpy()[finite_rgb]) / 1000.0
+                height_values = (df.loc[mask, "range"].to_numpy()[finite_rgb]) / 1000.0
                 scatter = ax.scatter(
                     time_values,
                     height_values,
@@ -1259,7 +1368,7 @@ def plot_sliding_column_process(
             if rng is None:
                 raise RuntimeError("Gaussian random generator was not initialized.")
             base_time = mdates.date2num(df.loc[mask, "time"].to_numpy())
-            base_height_km = df.loc[mask, "z_center_m"].to_numpy(dtype=float) / 1000.0
+            base_height_km = df.loc[mask, "range"].to_numpy(dtype=float) / 1000.0
             time_jitter_days = rng.normal(
                 0.0,
                 gaussian_time_sigma_s / 86400.0,
@@ -1273,7 +1382,9 @@ def plot_sliding_column_process(
             x_values = (base_time[:, None] + time_jitter_days).reshape(-1)
             y_values = (base_height_km[:, None] + height_jitter_km).reshape(-1)
             if np.ndim(size) > 0:
-                scatter_kwargs["s"] = np.repeat(np.asarray(size, dtype=float), gaussian_points)
+                scatter_kwargs["s"] = np.repeat(
+                    np.asarray(size, dtype=float), gaussian_points
+                )
             if "c" in scatter_kwargs and np.ndim(scatter_kwargs["c"]) == 2:
                 scatter_kwargs["c"] = np.repeat(
                     np.asarray(scatter_kwargs["c"], dtype=float),
@@ -1288,7 +1399,7 @@ def plot_sliding_column_process(
         else:
             scatter = ax.scatter(
                 df.loc[mask, "time"],
-                df.loc[mask, "z_center_m"] / 1000.0,
+                df.loc[mask, "range"] / 1000.0,
                 **scatter_kwargs,
             )
         handles.append(scatter)
@@ -1306,16 +1417,26 @@ def plot_sliding_column_process(
         cbar.ax.tick_params(labelsize=tick_fs)
 
     ax.set_xlabel("Time", fontsize=label_fs)
-    ax.set_ylabel("Height (km)", fontsize=label_fs)
+    ax.set_ylabel("Range (km)", fontsize=label_fs)
     ax.tick_params(labelsize=tick_fs)
     ax.grid(True, which="both", linestyle="--", linewidth=0.45, alpha=0.35)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
 
-    period_start = sliding_df.attrs.get("period_start", None)
-    period_end = sliding_df.attrs.get("period_end", None)
-    thickness = sliding_df.attrs.get("window_thickness_m", None)
-    step = sliding_df.attrs.get("window_step_m", None)
-    min_tau_strength = sliding_df.attrs.get("min_tau_strength", None)
+    period_start = sliding_attrs.get(
+        "period_start", sliding_df.attrs.get("period_start", None)
+    )
+    period_end = sliding_attrs.get(
+        "period_end", sliding_df.attrs.get("period_end", None)
+    )
+    thickness = sliding_attrs.get(
+        "window_thickness_m", sliding_df.attrs.get("window_thickness_m", None)
+    )
+    step = sliding_attrs.get(
+        "window_step_m", sliding_df.attrs.get("window_step_m", None)
+    )
+    min_tau_strength = sliding_attrs.get(
+        "min_tau_strength", sliding_df.attrs.get("min_tau_strength", None)
+    )
     subtitle_parts = []
     if thickness is not None:
         subtitle_parts.append(f"window={float(thickness):.0f} m")
@@ -1326,7 +1447,9 @@ def plot_sliding_column_process(
     subtitle = " | ".join(subtitle_parts)
     title = "Sliding Column Process"
     if period_start and period_end:
-        title = f"{title} | {period_start[0:16].replace('T', ' ')} - {period_end[11:16]}"
+        title = (
+            f"{title} | {period_start[0:16].replace('T', ' ')} - {period_end[11:16]}"
+        )
     if subtitle:
         title = f"{title}\n{subtitle}"
     ax.set_title(title, fontsize=title_fs, pad=12)
@@ -1347,9 +1470,18 @@ def plot_sliding_column_process(
     if savefig:
         outdir = Path.cwd() if output_dir is None else Path(output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
-        safe_t0 = str(period_start or "t0").replace(":", "").replace("-", "").replace(" ", "_")
-        safe_t1 = str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
-        filepath = outdir / f"sliding_column_process_{color_mode}_{safe_t0}_{safe_t1}.png"
+        safe_t0 = (
+            str(period_start or "t0")
+            .replace(":", "")
+            .replace("-", "")
+            .replace(" ", "_")
+        )
+        safe_t1 = (
+            str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
+        )
+        filepath = (
+            outdir / f"sliding_column_process_{color_mode}_{safe_t0}_{safe_t1}.png"
+        )
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
     return fig, filepath
@@ -1412,7 +1544,9 @@ def plot_fused_process_quicklook(
         "no_data": "#f0f0f0",
     }
 
-    def _resolve_column(df: pd.DataFrame, requested: str, alternatives: tuple[str, ...]) -> str:
+    def _resolve_column(
+        df: pd.DataFrame, requested: str, alternatives: tuple[str, ...]
+    ) -> str:
         if requested in df.columns:
             return requested
         for alt in alternatives:
@@ -1423,29 +1557,45 @@ def plot_fused_process_quicklook(
     sliding_time_col = _resolve_column(sliding_df, time_col, ("time",))
     sliding_proc_col = _resolve_column(sliding_df, process_col, ("proc_label",))
     sliding_top_col = _resolve_column(sliding_df, z_top_col, ("z_top_m", "z_max_m"))
-    sliding_bottom_col = _resolve_column(sliding_df, z_bottom_col, ("z_bottom_m", "z_min_m"))
+    sliding_bottom_col = _resolve_column(
+        sliding_df, z_bottom_col, ("z_bottom_m", "z_min_m")
+    )
 
     fused_time_col = _resolve_column(fused_df, time_col, ("time",))
-    fused_proc_col = _resolve_column(fused_df, process_fused_col, ("proc_label_fused", "proc_label"))
+    fused_proc_col = _resolve_column(
+        fused_df, process_fused_col, ("proc_label_fused", "proc_label")
+    )
     fused_top_col = _resolve_column(fused_df, z_top_fused_col, ("z_top_fused",))
-    fused_bottom_col = _resolve_column(fused_df, z_bottom_fused_col, ("z_bottom_fused",))
+    fused_bottom_col = _resolve_column(
+        fused_df, z_bottom_fused_col, ("z_bottom_fused",)
+    )
 
     df_sliding = sliding_df.copy()
     df_fused = fused_df.copy()
 
     df_sliding[sliding_time_col] = pd.to_datetime(df_sliding[sliding_time_col])
     df_sliding[sliding_proc_col] = df_sliding[sliding_proc_col].astype(str)
-    df_sliding[sliding_top_col] = pd.to_numeric(df_sliding[sliding_top_col], errors="coerce")
-    df_sliding[sliding_bottom_col] = pd.to_numeric(df_sliding[sliding_bottom_col], errors="coerce")
+    df_sliding[sliding_top_col] = pd.to_numeric(
+        df_sliding[sliding_top_col], errors="coerce"
+    )
+    df_sliding[sliding_bottom_col] = pd.to_numeric(
+        df_sliding[sliding_bottom_col], errors="coerce"
+    )
 
     df_fused[fused_time_col] = pd.to_datetime(df_fused[fused_time_col])
     df_fused[fused_proc_col] = df_fused[fused_proc_col].astype(str)
     df_fused[fused_top_col] = pd.to_numeric(df_fused[fused_top_col], errors="coerce")
-    df_fused[fused_bottom_col] = pd.to_numeric(df_fused[fused_bottom_col], errors="coerce")
+    df_fused[fused_bottom_col] = pd.to_numeric(
+        df_fused[fused_bottom_col], errors="coerce"
+    )
 
     if processes is not None:
-        selected_processes = {str(process) for process in processes if process is not None}
-        df_sliding = df_sliding[df_sliding[sliding_proc_col].isin(selected_processes)].copy()
+        selected_processes = {
+            str(process) for process in processes if process is not None
+        }
+        df_sliding = df_sliding[
+            df_sliding[sliding_proc_col].isin(selected_processes)
+        ].copy()
         df_fused = df_fused[df_fused[fused_proc_col].isin(selected_processes)].copy()
 
     # Build a deterministic color map across all labels present.
@@ -1459,7 +1609,9 @@ def plot_fused_process_quicklook(
         )
     ).tolist()
     all_labels = [label for label in all_labels if label]
-    unknown_labels = sorted([label for label in all_labels if label not in process_colors])
+    unknown_labels = sorted(
+        [label for label in all_labels if label not in process_colors]
+    )
     if unknown_labels:
         cmap = plt.get_cmap("tab20")
         for idx, label in enumerate(unknown_labels):
@@ -1469,8 +1621,12 @@ def plot_fused_process_quicklook(
     times = pd.to_datetime(
         pd.concat(
             [
-                df_sliding[sliding_time_col] if not df_sliding.empty else pd.Series([], dtype="datetime64[ns]"),
-                df_fused[fused_time_col] if not df_fused.empty else pd.Series([], dtype="datetime64[ns]"),
+                df_sliding[sliding_time_col]
+                if not df_sliding.empty
+                else pd.Series([], dtype="datetime64[ns]"),
+                df_fused[fused_time_col]
+                if not df_fused.empty
+                else pd.Series([], dtype="datetime64[ns]"),
             ],
             ignore_index=True,
         )
@@ -1497,12 +1653,32 @@ def plot_fused_process_quicklook(
         heights_m: list[np.ndarray] = []
         if not df_sliding.empty:
             if "z_center_m" in df_sliding.columns:
-                heights_m.append(pd.to_numeric(df_sliding["z_center_m"], errors="coerce").to_numpy(dtype=float))
-            heights_m.append(pd.to_numeric(df_sliding[sliding_top_col], errors="coerce").to_numpy(dtype=float))
-            heights_m.append(pd.to_numeric(df_sliding[sliding_bottom_col], errors="coerce").to_numpy(dtype=float))
+                heights_m.append(
+                    pd.to_numeric(df_sliding["z_center_m"], errors="coerce").to_numpy(
+                        dtype=float
+                    )
+                )
+            heights_m.append(
+                pd.to_numeric(df_sliding[sliding_top_col], errors="coerce").to_numpy(
+                    dtype=float
+                )
+            )
+            heights_m.append(
+                pd.to_numeric(df_sliding[sliding_bottom_col], errors="coerce").to_numpy(
+                    dtype=float
+                )
+            )
         if not df_fused.empty:
-            heights_m.append(pd.to_numeric(df_fused[fused_top_col], errors="coerce").to_numpy(dtype=float))
-            heights_m.append(pd.to_numeric(df_fused[fused_bottom_col], errors="coerce").to_numpy(dtype=float))
+            heights_m.append(
+                pd.to_numeric(df_fused[fused_top_col], errors="coerce").to_numpy(
+                    dtype=float
+                )
+            )
+            heights_m.append(
+                pd.to_numeric(df_fused[fused_bottom_col], errors="coerce").to_numpy(
+                    dtype=float
+                )
+            )
 
         if not heights_m:
             return None
@@ -1516,11 +1692,18 @@ def plot_fused_process_quicklook(
 
     # Background sliding points at layer center.
     if not df_sliding.empty:
-        center_m = 0.5 * (df_sliding[sliding_top_col].to_numpy(dtype=float) + df_sliding[sliding_bottom_col].to_numpy(dtype=float))
-        finite = np.isfinite(center_m) & (~pd.isna(df_sliding[sliding_time_col]).to_numpy())
+        center_m = 0.5 * (
+            df_sliding[sliding_top_col].to_numpy(dtype=float)
+            + df_sliding[sliding_bottom_col].to_numpy(dtype=float)
+        )
+        finite = np.isfinite(center_m) & (
+            ~pd.isna(df_sliding[sliding_time_col]).to_numpy()
+        )
         if np.any(finite):
             for label in sorted(pd.unique(df_sliding.loc[finite, sliding_proc_col])):
-                mask = finite & (df_sliding[sliding_proc_col].to_numpy(dtype=str) == str(label))
+                mask = finite & (
+                    df_sliding[sliding_proc_col].to_numpy(dtype=str) == str(label)
+                )
                 if not np.any(mask):
                     continue
                 ax.scatter(
@@ -1562,8 +1745,12 @@ def plot_fused_process_quicklook(
     ax.grid(True, which="both", linestyle="--", linewidth=0.45, alpha=0.35)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
 
-    period_start = sliding_df.attrs.get("period_start", fused_df.attrs.get("period_start", None))
-    period_end = sliding_df.attrs.get("period_end", fused_df.attrs.get("period_end", None))
+    period_start = sliding_df.attrs.get(
+        "period_start", fused_df.attrs.get("period_start", None)
+    )
+    period_end = sliding_df.attrs.get(
+        "period_end", fused_df.attrs.get("period_end", None)
+    )
     thickness = sliding_df.attrs.get("window_thickness_m", None)
     step = sliding_df.attrs.get("window_step_m", None)
     min_tau_strength = sliding_df.attrs.get("min_tau_strength", None)
@@ -1597,7 +1784,13 @@ def plot_fused_process_quicklook(
         fused_labels = [label for label in pd.unique(df_fused[fused_proc_col]) if label]
     if fused_labels and len(fused_labels) <= 12:
         handles = [
-            Rectangle((0, 0), 1, 1, facecolor=process_colors.get(str(label), "#333333"), alpha=float(alpha_fused))
+            Rectangle(
+                (0, 0),
+                1,
+                1,
+                facecolor=process_colors.get(str(label), "#333333"),
+                alpha=float(alpha_fused),
+            )
             for label in fused_labels
         ]
         ax.legend(
@@ -1613,8 +1806,15 @@ def plot_fused_process_quicklook(
     if savefig:
         outdir = Path(".") if output_dir is None else Path(output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
-        safe_t0 = str(period_start or "t0").replace(":", "").replace("-", "").replace(" ", "_")
-        safe_t1 = str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
+        safe_t0 = (
+            str(period_start or "t0")
+            .replace(":", "")
+            .replace("-", "")
+            .replace(" ", "_")
+        )
+        safe_t1 = (
+            str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
+        )
         filepath = outdir / f"fused_process_quicklook_{safe_t0}_{safe_t1}.png"
         fig.savefig(filepath, dpi=int(dpi), bbox_inches="tight")
 
@@ -1679,7 +1879,10 @@ def plot_sliding_process_scatter_compare(
     df["proc_label"] = df["proc_label"].astype(str)
     df = df[df["proc_label"].isin(selected_processes)].copy()
     if period is not None:
-        df = df[(df["time"] >= pd.Timestamp(period[0])) & (df["time"] <= pd.Timestamp(period[1]))]
+        df = df[
+            (df["time"] >= pd.Timestamp(period[0]))
+            & (df["time"] <= pd.Timestamp(period[1]))
+        ]
     if z_bottom_m is not None:
         if "z_bottom_m" in df.columns:
             df = df[df["z_bottom_m"] >= float(z_bottom_m)]
@@ -1760,7 +1963,9 @@ def plot_sliding_process_scatter_compare(
         if show_density and len(group) >= 5:
             x_values = group[x].to_numpy(dtype=float)
             y_values = group[y].to_numpy(dtype=float)
-            if np.nanmax(x_values) > np.nanmin(x_values) and np.nanmax(y_values) > np.nanmin(y_values):
+            if np.nanmax(x_values) > np.nanmin(x_values) and np.nanmax(
+                y_values
+            ) > np.nanmin(y_values):
                 hist, x_edges, y_edges = np.histogram2d(x_values, y_values, bins=12)
                 if np.any(hist > 0):
                     x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
@@ -1803,15 +2008,30 @@ def plot_sliding_process_scatter_compare(
     ax.set_title(title, fontsize=title_fs, pad=12)
 
     if legend_handles:
-        ax.legend(handles=legend_handles, loc=kwargs.get("legend_loc", "best"), fontsize=legend_fs, frameon=True)
+        ax.legend(
+            handles=legend_handles,
+            loc=kwargs.get("legend_loc", "best"),
+            fontsize=legend_fs,
+            frameon=True,
+        )
 
     filepath: Path | None = None
     if savefig:
         outdir = Path.cwd() if output_dir is None else Path(output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
-        safe_processes = "_vs_".join(label.replace(" ", "_") for label in plotted_labels) or "processes"
-        safe_t0 = str(period_start or "t0").replace(":", "").replace("-", "").replace(" ", "_")
-        safe_t1 = str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
+        safe_processes = (
+            "_vs_".join(label.replace(" ", "_") for label in plotted_labels)
+            or "processes"
+        )
+        safe_t0 = (
+            str(period_start or "t0")
+            .replace(":", "")
+            .replace("-", "")
+            .replace(" ", "_")
+        )
+        safe_t1 = (
+            str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
+        )
         filepath = outdir / (
             f"sliding_process_scatter_compare_{safe_processes}_{x}_vs_{y}_color_{color}_{safe_t0}_{safe_t1}.png"
         )
@@ -1839,12 +2059,14 @@ def plot_classified_processes_on_hexagram(
     alpha_hexagram = kwargs.get("alpha_hexagram", pcfg.alpha_hexagram)
     alpha_mask = kwargs.get("alpha_mask", 0.18)
     markersize = kwargs.get("markersize", 35.0)
-    
-    #Check processes names are correct with respect to the codes in PROCESS_CODES
+
+    # Check processes names are correct with respect to the codes in PROCESS_CODES
     if processes is not None:
         for process in processes:
             if process not in PROCESS_CODES:
-                raise ValueError(f"Process '{process}' is not recognized. Valid processes: {list(PROCESS_CODES.keys())}")
+                raise ValueError(
+                    f"Process '{process}' is not recognized. Valid processes: {list(PROCESS_CODES.keys())}"
+                )
 
     if not isinstance(classified, xr.Dataset):
         raise TypeError("classified must be an xr.Dataset.")
@@ -1879,7 +2101,9 @@ def plot_classified_processes_on_hexagram(
 
     if processes is not None:
         for selected_processes in processes:
-            classified = classified.where(classified["proc_label"].isin(list(selected_processes)), drop=True)
+            classified = classified.where(
+                classified["proc_label"].isin(list(selected_processes)), drop=True
+            )
 
     fig, ax = plt.subplots(figsize=figsize)
     if show_background:
@@ -1957,8 +2181,12 @@ def plot_classified_processes_on_hexagram(
     if savefig:
         outdir = Path.cwd() if output_dir is None else Path(output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
-        t0s = str(np.datetime_as_string(classified["time"].values[0], unit="s")).replace(":", "")
-        t1s = str(np.datetime_as_string(classified["time"].values[-1], unit="s")).replace(":", "")
+        t0s = str(
+            np.datetime_as_string(classified["time"].values[0], unit="s")
+        ).replace(":", "")
+        t1s = str(
+            np.datetime_as_string(classified["time"].values[-1], unit="s")
+        ).replace(":", "")
         filepath = outdir / f"classified_processes_hexagram_{t0s}_{t1s}_k{k}.png"
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 

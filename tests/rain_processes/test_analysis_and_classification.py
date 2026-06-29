@@ -238,7 +238,7 @@ def test_summarize_process_dynamics(raprompro_subset_10min_loaded_mrr):
 
 
 def test_sliding_rain_classification(raprompro_subset_10min_loaded_mrr):
-    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+    sliding = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -249,33 +249,56 @@ def test_sliding_rain_classification(raprompro_subset_10min_loaded_mrr):
         min_tau_strength=0.10,
     )
 
-    assert isinstance(sliding_df, pd.DataFrame)
-    assert not sliding_df.empty
+    assert isinstance(sliding, xr.Dataset)
+    assert sliding.dims["time"] > 0
+    assert sliding.dims["range"] > 0
+    assert tuple(sliding["proc_label"].dims) == ("time", "range")
     for field_name in (
-        "time",
-        "window_id",
-        "z_min_m",
-        "z_max_m",
-        "z_bottom_m",
-        "z_top_m",
-        "z_center_m",
         "proc_label",
         "proc_strength",
         "Dm_delta_pct",
         "Nw_delta_pct",
         "LWC_delta_pct",
     ):
-        assert field_name in sliding_df.columns
-    assert sliding_df.attrs["window_thickness_m"] == pytest.approx(1000.0)
-    assert sliding_df.attrs["window_step_m"] == pytest.approx(100.0)
-    assert sliding_df.attrs["selection_mode"] == "sliding"
-    assert sliding_df["window_id"].nunique() >= 1
+        assert field_name in sliding
+    for coord_name in (
+        "window_id",
+        "range_bottom_m",
+        "range_top_m",
+        "range",
+    ):
+        assert coord_name in sliding.coords
+    for duplicate_field_name in (
+        "z_min_m",
+        "z_max_m",
+        "z_bottom_m",
+        "z_top_m",
+        "z_center_m",
+        "z_base_m",
+        "dz_m",
+        "dz_km",
+        "minutes",
+        "window_thickness_m",
+        "window_step_m",
+        "trend_method",
+        "selection_mode",
+        "p_Dm",
+        "ts_Dm",
+        "sign_Dm",
+        "strength_Dm",
+    ):
+        assert duplicate_field_name not in sliding
+        assert duplicate_field_name not in sliding.coords
+    assert sliding.attrs["window_thickness_m"] == pytest.approx(1000.0)
+    assert sliding.attrs["window_step_m"] == pytest.approx(100.0)
+    assert sliding.attrs["selection_mode"] == "sliding"
+    assert sliding.attrs["range_represents"] == "source_range_coordinate_m"
 
 
-def test_public_sliding_rain_classification_returns_sliding_dataframe(
+def test_public_sliding_rain_classification_returns_sliding_dataset(
     raprompro_subset_10min_loaded_mrr,
 ):
-    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+    sliding = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=1000.0,
@@ -283,9 +306,10 @@ def test_public_sliding_rain_classification_returns_sliding_dataframe(
         min_tau_strength=0.10,
     )
 
-    assert isinstance(sliding_df, pd.DataFrame)
-    assert not sliding_df.empty
-    assert sliding_df.attrs["selection_mode"] == "sliding"
+    assert isinstance(sliding, xr.Dataset)
+    assert sliding.dims["time"] > 0
+    assert sliding.dims["range"] > 0
+    assert sliding.attrs["selection_mode"] == "sliding"
 
 
 def test_legacy_layer_argument_still_works_with_warning(
@@ -313,12 +337,9 @@ def test_detect_column_process_episodes_from_sliding():
         {
             "time": times,
             "window_id": [0] * 10,
-            "z_min_m": [1000.0] * 10,
-            "z_max_m": [2000.0] * 10,
-            "z_center_m": [1500.0] * 10,
-            "window_thickness_m": [1000.0] * 10,
-            "window_step_m": [100.0] * 10,
-            "trend_method": ["kendall_theilsen"] * 10,
+            "range_bottom_m": [1000.0] * 10,
+            "range_top_m": [2000.0] * 10,
+            "range": [1500.0] * 10,
             "proc_label": [
                 "evaporation",
                 "evaporation",

@@ -1458,8 +1458,7 @@ class MRRProData:
         by explicit arguments. ``window_step_m=None`` means "raw resolution"
         (native range-grid spacing).
 
-        The output dataframe contains one row per ``time × window`` and is the
-        recommended input for :meth:`detect_column_process_episodes`.
+        The output dataset uses dimensions ``(time, range)``.
         """
         thickness_m = (
             float(window_thickness_m)
@@ -1493,7 +1492,7 @@ class MRRProData:
     def detect_column_process_episodes(
         self,
         *,
-        sliding_df: pd.DataFrame,
+        sliding_df: xr.Dataset | pd.DataFrame,
         min_consecutive_profiles: int = 6,
     ) -> pd.DataFrame:
         """
@@ -1553,7 +1552,7 @@ class MRRProData:
     def plot_sliding_column_process(
         self,
         *,
-        sliding_df: pd.DataFrame,
+        sliding_df: xr.Dataset | pd.DataFrame,
         processes: list[str] | None = None,
         savefig: bool = False,
         output_dir: Path | None = None,

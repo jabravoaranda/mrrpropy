@@ -1193,6 +1193,54 @@ def _build_sliding_layer_windows(
     return windows
 
 
+def _build_range_centered_sliding_windows(
+    range_values: np.ndarray,
+    *,
+    window_thickness_m: float,
+    window_step_m: float,
+    use_native_range: bool,
+) -> list[tuple[float, float, float]]:
+    values = np.sort(np.asarray(range_values, dtype=float))
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return []
+    if window_thickness_m <= 0.0:
+        raise ValueError("window_thickness_m must be positive.")
+    if window_step_m <= 0.0:
+        raise ValueError("window_step_m must be positive.")
+
+    half_thickness = float(window_thickness_m) / 2.0
+    full_window_mask = (values - half_thickness >= float(np.nanmin(values))) & (
+        values + half_thickness <= float(np.nanmax(values))
+    )
+    eligible_centers = values[full_window_mask]
+    if eligible_centers.size == 0:
+        return []
+
+    if use_native_range:
+        centers = eligible_centers
+    else:
+        centers = np.arange(
+            float(eligible_centers[0]),
+            float(eligible_centers[-1]) + float(window_step_m) * 0.5,
+            float(window_step_m),
+            dtype=float,
+        )
+        centers = centers[
+            (centers - half_thickness >= float(np.nanmin(values)))
+            & (centers + half_thickness <= float(np.nanmax(values)))
+        ]
+
+    return [
+        (
+            float(center),
+            float(center - half_thickness),
+            float(center + half_thickness),
+        )
+        for center in centers
+    ]
+
+
 def _detect_process_runs_from_sliding(
     sliding_df: pd.DataFrame,
     *,
@@ -1253,15 +1301,9 @@ def _detect_process_runs_from_sliding(
                 }
 
                 for meta_field in (
-                    "z_min_m",
-                    "z_max_m",
-                    "z_bottom_m",
-                    "z_top_m",
-                    "z_center_m",
-                    "window_thickness_m",
-                    "window_step_m",
-                    "trend_method",
-                    "selection_mode",
+                    "range_bottom_m",
+                    "range_top_m",
+                    "range",
                 ):
                     if meta_field in run.columns:
                         row[meta_field] = run.iloc[0][meta_field]
@@ -1302,9 +1344,78 @@ def _detect_process_runs_from_sliding(
     if episodes.empty:
         return episodes
     return episodes.sort_values(
-        by=["start_time", "z_min_m", "proc_label"],
+        by=["start_time", "range_bottom_m", "proc_label"],
         ascending=[True, True, True],
     ).reset_index(drop=True)
+
+
+def _sliding_dataframe_to_dataset(sliding_df: pd.DataFrame) -> xr.Dataset:
+    if sliding_df.empty:
+        out = xr.Dataset(coords={"time": [], "range": []})
+        out.attrs = dict(getattr(sliding_df, "attrs", {}))
+        return out
+
+    df = sliding_df.copy()
+    df["time"] = pd.to_datetime(df["time"])
+    df["range"] = pd.to_numeric(df["range"], errors="coerce")
+    df = df[np.isfinite(df["range"])].copy()
+    df = df.sort_values(["time", "range"]).drop_duplicates(
+        subset=["time", "range"],
+        keep="last",
+    )
+
+    coord_columns = (
+        "window_id",
+        "range_bottom_m",
+        "range_top_m",
+        "range_top_gate_m",
+        "range_bottom_gate_m",
+    )
+    range_coord_values: dict[str, np.ndarray] = {}
+    for column in coord_columns:
+        if column not in df.columns:
+            continue
+        values = (
+            df[["range", column]]
+            .drop_duplicates(subset=["range"])
+            .set_index("range")
+            .sort_index()[column]
+        )
+        range_coord_values[column] = values.to_numpy()
+
+    data_columns = [
+        column
+        for column in df.columns
+        if column not in {"time", "range", *coord_columns}
+    ]
+    out = (
+        df.set_index(["time", "range"])[data_columns]
+        .to_xarray()
+        .sortby(["time", "range"])
+    )
+
+    for column, values in range_coord_values.items():
+        if values.size == out.sizes.get("range", 0):
+            out = out.assign_coords({column: ("range", values)})
+
+    out.attrs = dict(getattr(sliding_df, "attrs", {}))
+    out.attrs["range_represents"] = "source_range_coordinate_m"
+    return out
+
+
+def sliding_rain_classification_to_dataframe(
+    sliding: xr.Dataset | pd.DataFrame,
+) -> pd.DataFrame:
+    if isinstance(sliding, pd.DataFrame):
+        return sliding.copy()
+    if not isinstance(sliding, xr.Dataset):
+        raise TypeError("sliding must be an xr.Dataset or pandas DataFrame.")
+    if "time" not in sliding.coords or "range" not in sliding.coords:
+        raise KeyError("sliding dataset must contain 'time' and 'range' coordinates.")
+
+    df = sliding.to_dataframe().reset_index()
+    df.attrs = dict(sliding.attrs)
+    return df
 
 
 def sliding_rain_classification(
@@ -1320,14 +1431,13 @@ def sliding_rain_classification(
     min_points_trend: int | None = None,
     vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
     max_tau_pvalue: float | None = None,
-) -> pd.DataFrame:
+) -> xr.Dataset:
     """
     Slide across the whole processed column with a sliding vertical window.
 
     For each window, the function runs the standard rain-process analysis and
-    classification pipeline, then exports a per-sample dataframe. The output is
-    therefore indexed by both time and layer window, and is intended as the
-    input for consecutive-profile episode detection.
+    classification pipeline. The output uses dimensions ``(time, range)``, where
+    ``range`` is the representative centre height of each sliding window.
 
     When the caller does not provide ``window_thickness_m``, ``window_step_m``
     or ``min_tau_strength``, and ``subject`` exposes a ``micro_cfg`` attribute,
@@ -1353,6 +1463,7 @@ def sliding_rain_classification(
         if window_step_m is not _UNSET
         else getattr(micro_cfg, "window_step_m", 100.0)
     )
+    use_native_range = step_param is None
 
     if step_param is None:
         values = np.asarray(ds["range"].values, dtype=float)
@@ -1370,21 +1481,38 @@ def sliding_rain_classification(
         else getattr(micro_cfg, "min_tau_strength", 0.10)
     )
 
-    windows = _build_sliding_layer_windows(
+    windows = _build_range_centered_sliding_windows(
         ds["range"].values,
         window_thickness_m=thickness_m,
         window_step_m=step_m,
+        use_native_range=use_native_range,
     )
     if not windows:
-        return pd.DataFrame()
+        empty = xr.Dataset(coords={"time": [], "range": []})
+        empty.attrs = {
+            "period_start": str(
+                np.datetime_as_string(np.datetime64(period[0]), unit="s")
+            ),
+            "period_end": str(
+                np.datetime_as_string(np.datetime64(period[1]), unit="s")
+            ),
+            "window_thickness_m": float(thickness_m),
+            "window_step_m": float(step_m),
+            "trend_method": "kendall_theilsen",
+            "tau_zero_tol": float(tau_zero_tol),
+            "k": int(k),
+            "selection_mode": "sliding",
+            "range_represents": "source_range_coordinate_m",
+        }
+        return empty
 
     frames: list[pd.DataFrame] = []
-    for window_id, (z_min_m, z_max_m) in enumerate(windows):
+    for window_id, (range_m, range_bottom_m, range_top_m) in enumerate(windows):
         analysis = layer_rain_classification(
             subject,
             period=period,
-            z_bottom_m=z_min_m,
-            z_top_m=z_max_m,
+            z_bottom_m=range_bottom_m,
+            z_top_m=range_top_m,
             k=k,
             ze_th=ze_th,
             tau_zero_tol=tau_zero_tol,
@@ -1408,17 +1536,38 @@ def sliding_rain_classification(
             variables=vars_trend,
         ).reset_index()
         frame["window_id"] = int(window_id)
-        frame["z_min_m"] = float(z_min_m)
-        frame["z_max_m"] = float(z_max_m)
-        frame["z_bottom_m"] = float(z_min_m)
-        frame["z_top_m"] = float(z_max_m)
-        frame["z_center_m"] = float(0.5 * (z_min_m + z_max_m))
-        frame["window_thickness_m"] = float(thickness_m)
-        frame["window_step_m"] = float(step_m)
-        frame["trend_method"] = str(
-            analysis.attrs.get("trend_method", "kendall_theilsen")
+        frame["range_bottom_m"] = float(range_bottom_m)
+        frame["range_top_m"] = float(range_top_m)
+        frame["range"] = float(range_m)
+        if "layer_top_range_m" in frame.columns:
+            frame["range_top_gate_m"] = frame["layer_top_range_m"]
+        if "layer_bottom_range_m" in frame.columns:
+            frame["range_bottom_gate_m"] = frame["layer_bottom_range_m"]
+        duplicate_columns = {
+            "minutes",
+            "z_bottom_m",
+            "z_top_m",
+            "z_base_m",
+            "dz_m",
+            "dz_km",
+            "layer_top_range_m",
+            "layer_bottom_range_m",
+            "sign_R",
+            "sign_G",
+            "sign_B",
+        }
+        for variable_name in vars_trend:
+            duplicate_columns.update(
+                {
+                    f"p_{variable_name}",
+                    f"ts_{variable_name}",
+                    f"sign_{variable_name}",
+                    f"strength_{variable_name}",
+                }
+            )
+        frame = frame.drop(
+            columns=[column for column in duplicate_columns if column in frame.columns]
         )
-        frame["selection_mode"] = "sliding"
         frames.append(frame)
 
     sliding_df = pd.concat(frames, ignore_index=True)
@@ -1437,7 +1586,9 @@ def sliding_rain_classification(
         "k": int(k),
         "selection_mode": "sliding",
     }
-    return sliding_df
+    sliding_ds = _sliding_dataframe_to_dataset(sliding_df)
+    breakpoint()
+    return sliding_ds
 
 
 def build_fused_column_process_dataframe(
@@ -1799,7 +1950,7 @@ def build_fused_column_process_dataframe(
 def detect_column_process_episodes(
     subject: SupportsRainAnalysis,
     *,
-    sliding_df: pd.DataFrame,
+    sliding_df: xr.Dataset | pd.DataFrame,
     min_consecutive_profiles: int = 6,
 ) -> pd.DataFrame:
     """
@@ -1810,8 +1961,10 @@ def detect_column_process_episodes(
     independently in each sliding vertical window.
     """
     del subject
+    if isinstance(sliding_df, xr.Dataset):
+        sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
     if not isinstance(sliding_df, pd.DataFrame):
-        raise TypeError("sliding_df must be a pandas DataFrame.")
+        raise TypeError("sliding_df must be an xr.Dataset or pandas DataFrame.")
     episodes = _detect_process_runs_from_sliding(
         sliding_df,
         min_consecutive_profiles=int(min_consecutive_profiles),

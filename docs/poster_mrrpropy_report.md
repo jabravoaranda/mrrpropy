@@ -81,7 +81,7 @@ Variables de analisis de procesos:
 - Campos canonicos: `trend_mag_*`, `trend_sign_*`, `trend_strength_*`, `trend_score_*`, `trend_p_*`.
 - RGB y hexagrama: `R`, `G`, `B`, `minutes`, `hex_x`, `hex_y`, `hex_area`.
 - Clasificacion: `proc_label`, `strength`, `sign_R`, `sign_G`, `sign_B`.
-- Dataframes: `Dm_top`, `Dm_bottom`, `Dm_delta`, `Dm_delta_pct`, `Dm_rate_per_km` y analogos para `Nw` y `LWC`; `window_id`, `z_min_m`, `z_max_m`, `z_center_m` en ventanas deslizantes.
+- Dataset deslizante: dimensiones `(time, range)`; coordenadas `window_id`, `range_bottom_m`, `range_top_m`; variables `Dm_top`, `Dm_bottom`, `Dm_delta`, `Dm_delta_pct`, `Dm_rate_per_km` y analogas para `Nw` y `LWC`.
 
 ## 4. Algoritmos implementados para deteccion o clasificacion de procesos de precipitacion
 
