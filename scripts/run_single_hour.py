@@ -234,7 +234,6 @@ def _save_layer_rain_analysis(
         period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
         layer=layer,
         k=k,
-        trend_method="kendall_theilsen",
     )
     classified = mrr.classify_rain_process(
         analysis=analysis,
@@ -396,7 +395,6 @@ def _save_column_event_sliding(
         window_thickness_m=window_thickness_m,
         window_step_m=window_step_m,
         min_tau_strength=MIN_TAU_STRENGTH,
-        trend_method="kendall_theilsen",
     )
     episodes_df = mrr.detect_column_process_episodes(
         sliding_df=sliding_df,
@@ -406,7 +404,9 @@ def _save_column_event_sliding(
     sliding_df.to_csv(output_dir / "sliding_column_process.csv", index=False)
     episodes_df.to_csv(output_dir / "column_process_episodes.csv", index=False)
 
-    sliding_df_plot = sliding_df[~sliding_df["proc_label"].isin(["unknown", "no_data"])].copy()
+    sliding_df_plot = sliding_df[
+        ~sliding_df["proc_label"].isin(["unknown", "no_data"])
+    ].copy()
     sliding_df_plot.attrs = dict(getattr(sliding_df, "attrs", {}))
     sliding_df_plot.to_csv(
         output_dir / "sliding_column_process_plot_filtered.csv",

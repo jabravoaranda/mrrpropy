@@ -28,8 +28,12 @@ import pandas as pd
 import xarray as xr
 from datetime import datetime
 
-from mrrpropy.rain_process_classification import process_features as process_feature_analysis
-from mrrpropy.rain_process_classification import rain_process_algorithm as process_analysis
+from mrrpropy.rain_process_classification import (
+    process_features as process_feature_analysis,
+)
+from mrrpropy.rain_process_classification import (
+    rain_process_algorithm as process_analysis,
+)
 from mrrpropy.plotting import _spectra as spectral_plotting
 from mrrpropy.plotting import processes as process_plotting
 from mrrpropy.plotting import processed as processed_plotting
@@ -56,6 +60,7 @@ plt.rcParams.update(
     }
 )
 
+
 @dataclass
 class MicrophysicsConfig:
     """
@@ -76,19 +81,15 @@ class MicrophysicsConfig:
     threshold_value: float = -5.0
     window_thickness_m: float = 500.0
     window_step_m: float | None = None  # None means "use raw vertical resolution"
-    trend_method: str = "kendall_theilsen"
     tau_zero_tol: float = 0.05
     min_points_trend: int = 10
-    min_points_ols: int = 10
     min_tau_strength: float = 0.5
     max_tau_pvalue: float | None = None
-    eps_q: float = 0.01
-    rgb_q: float = 0.02
-    eps_mode: str = "global_quantile"
     tol_center: float = 0.05
     min_strength: float = 0.10
     vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC")
     k: int = 11  # default hex resolution
+
 
 @dataclass
 class PlotConfig:
@@ -110,6 +111,7 @@ class PlotConfig:
     show_path_line: bool = True
     linewidth: float = 0.8
     dpi: int = 200
+
 
 @dataclass
 class MRRProData:
@@ -140,7 +142,6 @@ class MRRProData:
     # Constructors
     # -------------------------
     @classmethod
-
     def from_file(cls, path: str | Path) -> "MRRProData":
         """
         Open a raw MRR-PRO NetCDF file and wrap it in :class:`MRRProData`.
@@ -163,13 +164,11 @@ class MRRProData:
     # Basic Properties
     # -------------------------
     @property
-
     def time(self) -> pd.DatetimeIndex:
         """Time index as pandas DatetimeIndex."""
         return self.ds["time"].to_index()
 
     @property
-
     def range(self) -> np.ndarray:
         """
         Range of bins (m above radar, typically).
@@ -177,17 +176,14 @@ class MRRProData:
         return self.ds["range"].values
 
     @property
-
     def n_time(self) -> int:
         return self.ds.sizes["time"]
 
     @property
-
     def n_range(self) -> int:
         return self.ds.sizes["range"]
 
     @property
-
     def variables(self) -> List[str]:
         """List of data variables (Za, Z, Ze, RR, VEL, etc.)."""
         return list(self.ds.data_vars)
@@ -494,6 +490,7 @@ class MRRProData:
             spectrum_var=spectrum_var,
             range_limits=range_limits,
         )
+
     # -------------------------
     # Quick Plot (optional)
     # -------------------------
@@ -535,6 +532,7 @@ class MRRProData:
             vmax=vmax,
             **kwargs,
         )
+
     # -------------------------------------------------------------------------
     # Plotting
     # -------------------------------------------------------------------------
@@ -1120,54 +1118,6 @@ class MRRProData:
             **kwargs,
         )
 
-    def compute_layer_trend_ols(
-        self,
-        *,
-        z_bottom_m: float | None = None,
-        z_top_m: float | None = None,
-        z_top: float | None = None,
-        z_base: float | None = None,
-        time_dim: str = "time",
-        variable_threshold: str = "Ze",
-        threshold_value: float = -5.0,
-        vars: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-        eps_mode: str = "hourly_quantile",
-        q: float = 0.01,
-        eps_floor_mode: str = "global_min",
-        min_points_ols: int = 10,
-    ) -> xr.Dataset:
-        """
-        Compute layer-wise legacy OLS trends of selected microphysical variables.
-
-        For each time step, the method fits ``ln(X)`` versus depth from the top
-        of the selected layer, after thresholding on a reflectivity field such as
-        ``Ze``. It returns slopes, intercepts, fit quality and the masks actually
-        used in each regression.
-
-        The output is kept for backward compatibility and diagnostic comparison.
-        The recommended microphysical method is :meth:`compute_layer_trend`,
-        which uses Kendall's tau plus Theil-Sen slope.
-
-        Use ``z_bottom_m`` and ``z_top_m`` to define the physical layer bounds.
-        Legacy ``z_top`` / ``z_base`` aliases are still accepted for
-        compatibility.
-        """
-        return process_analysis.compute_layer_trend_ols(
-            self,
-            z_bottom_m=z_bottom_m,
-            z_top_m=z_top_m,
-            z_top=z_top,
-            z_base=z_base,
-            time_dim=time_dim,
-            variable_threshold=variable_threshold,
-            threshold_value=threshold_value,
-            vars=vars,
-            eps_mode=eps_mode,
-            q=q,
-            eps_floor_mode=eps_floor_mode,
-            min_points_ols=min_points_ols,
-        )
-
     def compute_layer_trend(
         self,
         *,
@@ -1179,13 +1129,8 @@ class MRRProData:
         variable_threshold: str = "Ze",
         threshold_value: float = -5.0,
         vars: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-        trend_method: str = "kendall_theilsen",
         tau_zero_tol: float = 0.05,
         min_points_trend: int | None = None,
-        min_points_ols: int | None = None,
-        eps_mode: str = "hourly_quantile",
-        q: float = 0.01,
-        eps_floor_mode: str = "global_min",
     ) -> xr.Dataset:
         """
         Compute layer-wise microphysical trends.
@@ -1195,7 +1140,6 @@ class MRRProData:
         ``trend_score_*`` and ``trend_p_*``. By default, the underlying trend
         summary is non-parametric: Kendall's tau captures monotonic direction
         and consistency, while Theil-Sen slope captures robust magnitude.
-        ``trend_method="ols"`` keeps the legacy fit available for comparison.
 
         The fixed layer is defined with ``z_bottom_m`` and ``z_top_m`` in
         meters, with positive change meaning increase while descending from
@@ -1211,13 +1155,8 @@ class MRRProData:
             variable_threshold=variable_threshold,
             threshold_value=threshold_value,
             vars=vars,
-            trend_method=trend_method,
             tau_zero_tol=tau_zero_tol,
             min_points_trend=min_points_trend,
-            min_points_ols=min_points_ols,
-            eps_mode=eps_mode,
-            q=q,
-            eps_floor_mode=eps_floor_mode,
         )
 
     def rain_process_analyze(
@@ -1232,12 +1171,8 @@ class MRRProData:
         z_top_m: float | None = None,
         layer: tuple[float, float] | None = None,
         ze_th: float = -5.0,
-        trend_method: str = "kendall_theilsen",
         tau_zero_tol: float = 0.05,
         min_points_trend: int | None = None,
-        min_points_ols: int | None = None,
-        eps_q: float = 0.01,
-        rgb_q: float = 0.02,
         vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
         min_tau_strength: float | None | _UnsetType = _UNSET,
         max_tau_pvalue: float | None = None,
@@ -1260,9 +1195,7 @@ class MRRProData:
         2. map those diagnostics into RGB space,
         3. project the RGB samples onto the package hexagram grid.
 
-        The pipeline consumes method-neutral canonical trend variables, so the
-        downstream RGB and classification steps do not depend on whether the
-        diagnostics came from Kendall/Theil-Sen or from the legacy OLS method.
+        The pipeline consumes canonical Kendall/Theil-Sen trend variables.
 
         Returns
         -------
@@ -1282,7 +1215,9 @@ class MRRProData:
         """
         mode = str(selection_mode).strip().lower()
         if mode not in {"sliding", "fixed_layer"}:
-            raise ValueError("selection_mode must be either 'sliding' or 'fixed_layer'.")
+            raise ValueError(
+                "selection_mode must be either 'sliding' or 'fixed_layer'."
+            )
 
         has_fixed_layer_args = (
             layer is not None or z_bottom_m is not None or z_top_m is not None
@@ -1322,12 +1257,8 @@ class MRRProData:
                 window_step_m=step_m,
                 min_tau_strength=tau_strength,
                 ze_th=ze_th,
-                trend_method=trend_method,
                 tau_zero_tol=tau_zero_tol,
                 min_points_trend=min_points_trend,
-                min_points_ols=min_points_ols,
-                eps_q=eps_q,
-                rgb_q=rgb_q,
                 vars_trend=vars_trend,
                 max_tau_pvalue=max_tau_pvalue,
             )
@@ -1340,12 +1271,8 @@ class MRRProData:
             layer=layer,
             k=k,
             ze_th=ze_th,
-            trend_method=trend_method,
             tau_zero_tol=tau_zero_tol,
             min_points_trend=min_points_trend,
-            min_points_ols=min_points_ols,
-            eps_q=eps_q,
-            rgb_q=rgb_q,
             vars_trend=vars_trend,
         )
 
@@ -1450,7 +1377,11 @@ class MRRProData:
         :attr:`micro_cfg` when not explicitly provided. ``window_step_m=None``
         means "raw resolution" (native range-grid spacing).
         """
-        ds_in = ds if ds is not None else (self.raprompro if self.raprompro is not None else self.ds)
+        ds_in = (
+            ds
+            if ds is not None
+            else (self.raprompro if self.raprompro is not None else self.ds)
+        )
         return process_feature_analysis.build_process_features(
             ds_in,
             mode=mode,
@@ -1588,12 +1519,8 @@ class MRRProData:
         window_step_m: float | None | _UnsetType = _UNSET,
         min_tau_strength: float | None | _UnsetType = _UNSET,
         ze_th: float = -5.0,
-        trend_method: str = "kendall_theilsen",
         tau_zero_tol: float = 0.05,
         min_points_trend: int | None = None,
-        min_points_ols: int | None = None,
-        eps_q: float = 0.01,
-        rgb_q: float = 0.02,
         vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
         max_tau_pvalue: float | None = None,
     ) -> pd.DataFrame:
@@ -1631,12 +1558,8 @@ class MRRProData:
             window_step_m=step_m,
             min_tau_strength=tau_strength,
             ze_th=ze_th,
-            trend_method=trend_method,
             tau_zero_tol=tau_zero_tol,
             min_points_trend=min_points_trend,
-            min_points_ols=min_points_ols,
-            eps_q=eps_q,
-            rgb_q=rgb_q,
             vars_trend=vars_trend,
             max_tau_pvalue=max_tau_pvalue,
         )

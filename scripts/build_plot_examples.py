@@ -72,8 +72,6 @@ class PlotContext:
                 z_top_m=LAYER[1],
                 ze_th=-5.0,
                 min_points_trend=10,
-                eps_q=0.01,
-                rgb_q=0.02,
                 vars_trend=("Dm", "Nw", "LWC"),
             )
         return self._analysis_fixed

@@ -23,23 +23,6 @@ class _SyntheticProcessedMRR:
         return True
 
 
-def test_compute_layer_trend_ols(raprompro_subset_10min_loaded_mrr):
-    result = raprompro_subset_10min_loaded_mrr.compute_layer_trend_ols(
-        z_bottom_m=1000.0,
-        z_top_m=2000.0,
-        variable_threshold="Ze",
-        threshold_value=-5.0,
-        eps_mode="hourly_quantile",
-        q=0.1,
-        time_dim="time",
-    )
-
-    assert result.attrs["trend_method"] == "ols_legacy"
-    for variable_name in ("Dm", "Nw", "LWC"):
-        for prefix in ("b", "a", "r2", "F", "eps", "n_fit", "mask_fit"):
-            assert f"{prefix}_{variable_name}" in result
-
-
 def test_compute_layer_trend_kendall_theilsen(raprompro_subset_10min_loaded_mrr):
     result = raprompro_subset_10min_loaded_mrr.compute_layer_trend(
         z_bottom_m=1000.0,
@@ -71,7 +54,6 @@ def test_compute_layer_trend_kendall_theilsen(raprompro_subset_10min_loaded_mrr)
             f"trend_p_{variable_name}",
             f"n_fit_{variable_name}",
             f"mask_fit_{variable_name}",
-            f"b_{variable_name}",
         ):
             assert field_name in result
         assert result[f"tau_{variable_name}"].shape == (n_time,)
@@ -112,44 +94,9 @@ def test_compute_layer_trend_uses_descending_rain_evolution():
     assert result["tau_LWC"].values[0] > 0.9
 
 
-def test_compute_layer_trend_ols_exposes_canonical_trend_fields(
-    raprompro_subset_10min_loaded_mrr,
-):
-    result = raprompro_subset_10min_loaded_mrr.compute_layer_trend(
-        z_bottom_m=1000.0,
-        z_top_m=2000.0,
-        trend_method="ols",
-        variable_threshold="Ze",
-        threshold_value=-5.0,
-        time_dim="time",
-        min_points_trend=6,
-    )
-
-    assert result.attrs["trend_method"] == "ols"
-    for variable_name in ("Dm", "Nw", "LWC"):
-        for field_name in (
-            f"b_{variable_name}",
-            f"r2_{variable_name}",
-            f"trend_mag_{variable_name}",
-            f"trend_sign_{variable_name}",
-            f"trend_strength_{variable_name}",
-            f"trend_score_{variable_name}",
-            f"trend_p_{variable_name}",
-        ):
-            assert field_name in result
-
-
 def test_rain_process_analyze_uses_nonparametric_pipeline(
     raprompro_subset_10min_loaded_mrr,
-    monkeypatch,
 ):
-    def _raise_if_called(*args, **kwargs):
-        raise AssertionError(
-            "OLS helper should not be used by the default analysis pipeline."
-        )
-
-    monkeypatch.setattr(process_analysis, "ols_slope_intercept_r2", _raise_if_called)
-
     analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
@@ -159,8 +106,6 @@ def test_rain_process_analyze_uses_nonparametric_pipeline(
         ze_th=-5.0,
         min_points_trend=6,
         tau_zero_tol=0.05,
-        eps_q=0.01,
-        rgb_q=0.02,
         vars_trend=("Dm", "Nw", "LWC"),
     )
 
@@ -185,7 +130,6 @@ def test_rain_process_analyze_uses_nonparametric_pipeline(
             "trend_p",
         ):
             assert f"{prefix}_{variable_name}" in analysis
-        assert f"b_{variable_name}" in analysis
 
     assert analysis.attrs["trend_method"] == "kendall_theilsen"
     assert analysis.attrs["rgb_method"] == "trend_score"

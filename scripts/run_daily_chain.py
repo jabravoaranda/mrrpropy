@@ -16,6 +16,7 @@ WINDOW_THICKNESS_M = 600.0
 WINDOW_STEP_M = 200.0
 MIN_TAU_STRENGTH = 0.5
 
+
 def _to_python_datetime(value: object) -> object:
     """Convert a timestamp-like value to `datetime` without nanosecond warnings."""
     return pd.Timestamp(value).round("us").to_pydatetime()
@@ -233,7 +234,6 @@ def _save_layer_rain_analysis(
         period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
         layer=layer,
         k=k,
-        trend_method="kendall_theilsen",
     )
     classified = mrr.classify_rain_process(
         analysis=analysis,
@@ -393,7 +393,6 @@ def _save_column_event_sliding(
         window_thickness_m=WINDOW_THICKNESS_M,
         window_step_m=WINDOW_STEP_M,
         min_tau_strength=MIN_TAU_STRENGTH,
-        trend_method="kendall_theilsen",
     )
     episodes_df = mrr.detect_column_process_episodes(
         sliding_df=sliding_df,
@@ -433,9 +432,7 @@ def _save_column_event_sliding(
         sliding_df_events = sliding_df.iloc[0:0].copy()
 
     sliding_df_events = sliding_df_events[
-        ~sliding_df_events["proc_label"].isin(
-            ["steady_or_weak", "unknown", "no_data"]
-        )
+        ~sliding_df_events["proc_label"].isin(["steady_or_weak", "unknown", "no_data"])
     ].copy()
     sliding_df_events.attrs = dict(getattr(sliding_df, "attrs", {}))
     sliding_df_events.to_csv(
@@ -447,7 +444,15 @@ def _save_column_event_sliding(
         fig, _ = mrr.plot_sliding_column_process(
             sliding_df=sliding_df_plot,
             color_mode="hexagram",
-            processes=['breakup', 'growth_depletion', 'growth_depletion_loss', 'growth_depletion_gain', 'activation', 'evaporation', 'growth'],
+            processes=[
+                "breakup",
+                "growth_depletion",
+                "growth_depletion_loss",
+                "growth_depletion_gain",
+                "activation",
+                "evaporation",
+                "growth",
+            ],
             savefig=True,
             output_dir=output_dir,
             figsize=(14, 7),
@@ -461,7 +466,15 @@ def _save_column_event_sliding(
         fig, _ = mrr.plot_sliding_column_process(
             sliding_df=sliding_df_events,
             color_mode="hexagram",
-            processes=['breakup', 'growth_depletion', 'growth_depletion_loss', 'growth_depletion_gain', 'activation', 'evaporation', 'growth'],
+            processes=[
+                "breakup",
+                "growth_depletion",
+                "growth_depletion_loss",
+                "growth_depletion_gain",
+                "activation",
+                "evaporation",
+                "growth",
+            ],
             savefig=False,
             output_dir=output_dir,
             figsize=(14, 7),
@@ -473,7 +486,9 @@ def _save_column_event_sliding(
         period_end = sliding_df_events.attrs.get("period_end", "t1")
         safe_t0 = str(period_start).replace(":", "").replace("-", "").replace(" ", "_")
         safe_t1 = str(period_end).replace(":", "").replace("-", "").replace(" ", "_")
-        events_path = output_dir / f"column_process_events_hexagram_{safe_t0}_{safe_t1}.png"
+        events_path = (
+            output_dir / f"column_process_events_hexagram_{safe_t0}_{safe_t1}.png"
+        )
         fig.savefig(events_path, dpi=dpi, bbox_inches="tight")
         plt.close(fig)
 
@@ -509,7 +524,12 @@ def _analyze_one_file(
         / f"rain_layer_{int(layer[0])}_{int(layer[1])}"
         / raw_path.stem
     )
-    column_dir = output_root / "plots" / "column_process_events_hexagram_w500_step35" / raw_path.stem
+    column_dir = (
+        output_root
+        / "plots"
+        / "column_process_events_hexagram_w500_step35"
+        / raw_path.stem
+    )
 
     mrr = MRRProData.from_file(raw_path)
     try:

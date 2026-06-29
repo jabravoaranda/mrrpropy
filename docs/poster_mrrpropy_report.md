@@ -106,12 +106,6 @@ La ruta recomendada usa tendencias verticales no parametricas:
 - Umbral de senal por `Ze > ze_th` y minimo de puntos validos (`min_points_trend`).
 - Campos canonicos independientes del metodo: `trend_sign_*`, `trend_strength_*`, `trend_score_*`.
 
-Existe una ruta OLS heredada para comparacion diagnostica:
-
-- Ajuste log-lineal por minimos cuadrados.
-- `r2` usado como fuerza de tendencia.
-- Campos canonicos equivalentes para mantener la compatibilidad aguas abajo.
-
 ### Clasificacion por firmas microfisicas
 
 La clasificacion usa el signo de las tendencias de `Dm`, `Nw` y `LWC`, con RGB semantico:
@@ -228,7 +222,6 @@ Scripts reproducibles:
 - `workbench/scripts/plot_one_raprompro_quicklooks.py`: quicklooks de un producto.
 - `workbench/scripts/plot_sampled_profiles.py`: perfiles muestreados.
 - `workbench/scripts/plot_rain_classification_regions.py`: figuras de regiones de clasificacion.
-- `workbench/scripts/plot_rain_process_regression_details.py`: detalles OLS/regresion para diagnostico.
 - `workbench/scripts/plot_raprompro_histogram.py`: histogramas de variables procesadas.
 
 No se encontraron carpetas versionadas `examples/` ni `notebooks/` en la raiz del repositorio.
@@ -242,7 +235,7 @@ El repositorio es principalmente una herramienta metodologica; no contiene un an
 - Correccion explicita de atenuacion integrada (`DBPIA`) y comparacion `Ze - Zea` para hidrometeoros liquidos.
 - Separacion de variables "por tipo hidrometeorico" frente a "todo liquido" (`Dm/Nw/LWC/RR` vs `*_all`).
 - Clasificacion de procesos microfisicos de precipitacion basada en tendencias verticales de `Dm`, `Nw` y `LWC`.
-- Sustitucion de OLS como metodo por defecto por Kendall tau + Theil-Sen, mas robusto frente a outliers y perfiles no lineales.
+- Uso de Kendall tau + Theil-Sen para representar tendencias verticales sin asumir linealidad.
 - Proyeccion RGB/hexagrama de las firmas microfisicas, util para comunicar visualmente crecimiento, evaporacion, activacion, ruptura y depletion.
 - Ventanas deslizantes de columna y deteccion de episodios persistentes, lo que permite pasar de diagnosticos de capa fija a estructuras tiempo-altura.
 

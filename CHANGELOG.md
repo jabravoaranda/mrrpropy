@@ -74,8 +74,8 @@ versioning for published package releases.
 
 ### Changed
 
-- Rain-process classification now uses canonical trend diagnostics instead of
-  OLS slopes by default, while keeping OLS as an explicit legacy/diagnostic path.
+- Rain-process classification now uses canonical Kendall/Theil-Sen trend
+  diagnostics instead of linear-fit slopes.
 - Test modules are now grouped by domain under `tests/raw_mrr`,
   `tests/raprompro`, `tests/rain_processes`, and `tests/hexagram`.
 - The documentation site, production guide, and release-validation workflow now

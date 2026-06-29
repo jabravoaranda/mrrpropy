@@ -29,8 +29,6 @@ def analysis(raprompro_subset_10min_loaded_mrr):
         min_tau_strength=MIN_TAU_STRENGTH,
         ze_th=-5.0,
         min_points_trend=10,
-        eps_q=0.01,
-        rgb_q=0.02,
         vars_trend=("Dm", "Nw", "LWC"),
     )
 
