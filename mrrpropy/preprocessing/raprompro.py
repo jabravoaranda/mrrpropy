@@ -7,7 +7,7 @@ from typing import Any, Protocol
 import numpy as np
 import xarray as xr
 
-import mrrpropy.RaProMPro_optimized as rpm_optimized
+from mrrpropy.preprocessing import RaProMPro_optimized as rpm_optimized
 
 
 class SupportsRaprompro(Protocol):

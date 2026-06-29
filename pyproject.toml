@@ -91,10 +91,10 @@ python_version = "3.11"
 files = [
     # Keep the initial typed lane scoped to modules that currently pass cleanly.
     "mrrpropy/__init__.py",
-    "mrrpropy/analysis",
-    "mrrpropy/processing",
+    "mrrpropy/rain_process_classification",
+    "mrrpropy/preprocessing",
     "mrrpropy/utils.py",
-    "mrrpropy/hexagram.py",
+    "mrrpropy/rain_process_classification/hexagram.py",
     "mrrpropy/plotting",
     "mrrpropy/cli",
 ]

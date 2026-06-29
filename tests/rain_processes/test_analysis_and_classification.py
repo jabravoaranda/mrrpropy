@@ -6,7 +6,9 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.rain_process_classification import (
+    rain_process_algorithm as process_analysis,
+)
 
 matplotlib.use("Agg")
 
@@ -294,17 +296,22 @@ def test_summarize_process_dynamics(raprompro_subset_10min_loaded_mrr):
     assert summary["n_samples"].sum() == len(classified["time"])
 
 
-def test_build_column_process_scan_dataframe(raprompro_subset_10min_loaded_mrr):
-    scan_df = raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
-        period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
-        k=11,
-        window_thickness_m=1000.0,
-        window_step_m=100.0,
-        min_tau_strength=0.10,
+def test_build_sliding_column_process_dataframe(raprompro_subset_10min_loaded_mrr):
+    sliding_df = (
+        raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
+            period=(
+                datetime(2025, 10, 29, 19, 23, 0),
+                datetime(2025, 10, 29, 19, 33, 0),
+            ),
+            k=11,
+            window_thickness_m=1000.0,
+            window_step_m=100.0,
+            min_tau_strength=0.10,
+        )
     )
 
-    assert isinstance(scan_df, pd.DataFrame)
-    assert not scan_df.empty
+    assert isinstance(sliding_df, pd.DataFrame)
+    assert not sliding_df.empty
     for field_name in (
         "time",
         "window_id",
@@ -319,17 +326,17 @@ def test_build_column_process_scan_dataframe(raprompro_subset_10min_loaded_mrr):
         "Nw_delta_pct",
         "LWC_delta_pct",
     ):
-        assert field_name in scan_df.columns
-    assert scan_df.attrs["window_thickness_m"] == pytest.approx(1000.0)
-    assert scan_df.attrs["window_step_m"] == pytest.approx(100.0)
-    assert scan_df.attrs["selection_mode"] == "scan"
-    assert scan_df["window_id"].nunique() >= 1
+        assert field_name in sliding_df.columns
+    assert sliding_df.attrs["window_thickness_m"] == pytest.approx(1000.0)
+    assert sliding_df.attrs["window_step_m"] == pytest.approx(100.0)
+    assert sliding_df.attrs["selection_mode"] == "sliding"
+    assert sliding_df["window_id"].nunique() >= 1
 
 
-def test_public_rain_process_analyze_defaults_to_scan(
+def test_public_rain_process_analyze_defaults_to_sliding(
     raprompro_subset_10min_loaded_mrr,
 ):
-    scan_df = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    sliding_df = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=1000.0,
@@ -337,9 +344,9 @@ def test_public_rain_process_analyze_defaults_to_scan(
         min_tau_strength=0.10,
     )
 
-    assert isinstance(scan_df, pd.DataFrame)
-    assert not scan_df.empty
-    assert scan_df.attrs["selection_mode"] == "scan"
+    assert isinstance(sliding_df, pd.DataFrame)
+    assert not sliding_df.empty
+    assert sliding_df.attrs["selection_mode"] == "sliding"
 
 
 def test_legacy_layer_argument_still_works_with_warning(
@@ -361,9 +368,9 @@ def test_legacy_layer_argument_still_works_with_warning(
     assert analysis.attrs["selection_mode"] == "fixed_layer"
 
 
-def test_detect_column_process_episodes_from_scan():
+def test_detect_column_process_episodes_from_sliding():
     times = pd.date_range("2025-10-29T19:23:00", periods=10, freq="10s")
-    scan_df = pd.DataFrame(
+    sliding_df = pd.DataFrame(
         {
             "time": times,
             "window_id": [0] * 10,
@@ -406,7 +413,7 @@ def test_detect_column_process_episodes_from_scan():
 
     episodes = process_analysis.detect_column_process_episodes(
         None,
-        scan_df=scan_df,
+        sliding_df=sliding_df,
         min_consecutive_profiles=6,
     )
 

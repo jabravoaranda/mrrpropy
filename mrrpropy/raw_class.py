@@ -28,13 +28,13 @@ import pandas as pd
 import xarray as xr
 from datetime import datetime
 
-from mrrpropy.analysis import process_features as process_feature_analysis
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.rain_process_classification import process_features as process_feature_analysis
+from mrrpropy.rain_process_classification import rain_process_algorithm as process_analysis
 from mrrpropy.plotting import _spectra as spectral_plotting
 from mrrpropy.plotting import processes as process_plotting
 from mrrpropy.plotting import processed as processed_plotting
 from mrrpropy.plotting import raw as raw_plotting
-from mrrpropy.processing import raprompro as raprompro_processing
+from mrrpropy.preprocessing import raprompro as raprompro_processing
 
 DatetimeLike = Union[str, np.datetime64, datetime]
 
@@ -63,11 +63,11 @@ class MicrophysicsConfig:
 
     Notes
     -----
-    Scan-mode workflows (sliding vertical windows) use ``window_thickness_m`` and
+    Sliding-mode workflows (sliding vertical windows) use ``window_thickness_m`` and
     ``window_step_m`` from this configuration by default when explicit arguments
     are not provided.
 
-    ``window_step_m=None`` means "raw resolution": the scan step is inferred
+    ``window_step_m=None`` means "raw resolution": the sliding step is inferred
     from the native range grid spacing (median of the range-coordinate
     differences).
     """
@@ -1026,10 +1026,10 @@ class MRRProData:
             **kwargs,
         )
 
-    def plot_scan_process_scatter_compare(
+    def plot_sliding_process_scatter_compare(
         self,
         *,
-        scan_df: pd.DataFrame,
+        sliding_df: pd.DataFrame,
         processes: list[str],
         x: str = "Dm_layer_mean",
         y: str = "Nw_layer_mean",
@@ -1044,15 +1044,15 @@ class MRRProData:
         **kwargs: Any,
     ) -> tuple[Figure, Path | None]:
         """
-        Compare several classified scan processes in a shared microphysical scatter.
+        Compare several classified sliding processes in a shared microphysical scatter.
 
-        Each point corresponds to one ``time x window`` sample from ``scan_df``.
+        Each point corresponds to one ``time x window`` sample from ``sliding_df``.
         Marker shape encodes the process, while color encodes the selected
         numeric variable.
         """
-        return process_plotting.plot_scan_process_scatter_compare(
+        return process_plotting.plot_sliding_process_scatter_compare(
             self,
-            scan_df=scan_df,
+            sliding_df=sliding_df,
             processes=processes,
             x=x,
             y=y,
@@ -1225,7 +1225,7 @@ class MRRProData:
         *,
         period: tuple[datetime, datetime],
         k: int,
-        selection_mode: str = "scan",
+        selection_mode: str = "sliding",
         window_thickness_m: float | None = None,
         window_step_m: float | None | _UnsetType = _UNSET,
         z_bottom_m: float | None = None,
@@ -1243,9 +1243,9 @@ class MRRProData:
         max_tau_pvalue: float | None = None,
     ) -> xr.Dataset | pd.DataFrame:
         """
-        Analyse rain-process evolution with a scan-first public workflow.
+        Analyse rain-process evolution with a sliding-first public workflow.
 
-        ``selection_mode="scan"`` is the default public interface and returns a
+        ``selection_mode="sliding"`` is the default public interface and returns a
         dataframe built from sliding windows defined by ``window_thickness_m``
         and ``window_step_m``.
 
@@ -1267,38 +1267,38 @@ class MRRProData:
         Returns
         -------
         xr.Dataset | pd.DataFrame
-            Scan mode returns the column-scan dataframe. Fixed-layer mode
+            Sliding mode returns the sliding-column dataframe. Fixed-layer mode
             returns the analysis dataset containing the trend diagnostics, RGB
             channels, elapsed minutes and the hexagram coordinates used
             downstream for plotting and classification.
 
         Notes
         -----
-        In scan mode, window geometry and the tau-strength threshold default to
+        In sliding mode, window geometry and the tau-strength threshold default to
         :attr:`micro_cfg` unless overridden by explicit arguments.
 
         ``window_step_m=None`` means "raw resolution": use the native range grid
         spacing (median of the range-coordinate differences).
         """
         mode = str(selection_mode).strip().lower()
-        if mode not in {"scan", "fixed_layer"}:
-            raise ValueError("selection_mode must be either 'scan' or 'fixed_layer'.")
+        if mode not in {"sliding", "fixed_layer"}:
+            raise ValueError("selection_mode must be either 'sliding' or 'fixed_layer'.")
 
         has_fixed_layer_args = (
             layer is not None or z_bottom_m is not None or z_top_m is not None
         )
-        if mode == "scan" and has_fixed_layer_args:
+        if mode == "sliding" and has_fixed_layer_args:
             warnings.warn(
                 "Fixed-layer arguments were provided to rain_process_analyze(). "
                 "Running in selection_mode='fixed_layer'. For the default "
-                "public workflow, prefer scan mode with `window_thickness_m` "
+                "public workflow, prefer sliding mode with `window_thickness_m` "
                 "and `window_step_m`.",
                 FutureWarning,
                 stacklevel=2,
             )
             mode = "fixed_layer"
 
-        if mode == "scan":
+        if mode == "sliding":
             thickness_m = (
                 float(window_thickness_m)
                 if window_thickness_m is not None
@@ -1314,7 +1314,7 @@ class MRRProData:
                 if min_tau_strength is not _UNSET
                 else self.micro_cfg.min_tau_strength
             )
-            return process_analysis.build_column_process_scan_dataframe(
+            return process_analysis.build_sliding_column_process_dataframe(
                 self,
                 period=period,
                 k=k,
@@ -1446,7 +1446,7 @@ class MRRProData:
         """
         Build Phase A `process_features` from a dataset.
 
-        In scan mode, ``window_thickness_m`` and ``window_step_m`` default to
+        In sliding mode, ``window_thickness_m`` and ``window_step_m`` default to
         :attr:`micro_cfg` when not explicitly provided. ``window_step_m=None``
         means "raw resolution" (native range-grid spacing).
         """
@@ -1522,7 +1522,7 @@ class MRRProData:
         -----
         - Process codes A, B, C... are shown on the y-axis of panel (a).
         - Their meaning is shown in a figure legend below the panels.
-        - If a process exists in mrrpropy.hexagram.PROCESS_SIGNATURES, its signature is
+        - If a process exists in mrrpropy.rain_process_classification.hexagram.PROCESS_SIGNATURES, its signature is
         appended in the legend.
         - Colorbars live in fixed GridSpec columns, so subplot widths remain aligned.
         - The function does not classify anything; it only visualizes
@@ -1579,7 +1579,7 @@ class MRRProData:
             variables=variables,
         )
 
-    def build_column_process_scan_dataframe(
+    def build_sliding_column_process_dataframe(
         self,
         *,
         period: tuple[datetime, datetime],
@@ -1598,7 +1598,7 @@ class MRRProData:
         max_tau_pvalue: float | None = None,
     ) -> pd.DataFrame:
         """
-        Scan the whole column with a sliding vertical window.
+        Slide across the whole column with a sliding vertical window.
 
         By default, ``window_thickness_m``, ``window_step_m`` and
         ``min_tau_strength`` are taken from :attr:`micro_cfg` unless overridden
@@ -1623,7 +1623,7 @@ class MRRProData:
             if min_tau_strength is not _UNSET
             else self.micro_cfg.min_tau_strength
         )
-        return process_analysis.build_column_process_scan_dataframe(
+        return process_analysis.build_sliding_column_process_dataframe(
             self,
             period=period,
             k=k,
@@ -1644,18 +1644,18 @@ class MRRProData:
     def detect_column_process_episodes(
         self,
         *,
-        scan_df: pd.DataFrame,
+        sliding_df: pd.DataFrame,
         min_consecutive_profiles: int = 6,
     ) -> pd.DataFrame:
         """
-        Detect persistent process episodes from a column scan dataframe.
+        Detect persistent process episodes from a sliding column dataframe.
 
         Episodes are defined independently in each sliding window and require a
         minimum number of consecutive profiles with the same process label.
         """
         return process_analysis.detect_column_process_episodes(
             self,
-            scan_df=scan_df,
+            sliding_df=sliding_df,
             min_consecutive_profiles=min_consecutive_profiles,
         )
 
@@ -1701,24 +1701,24 @@ class MRRProData:
             **kwargs,
         )
 
-    def plot_column_process_scan(
+    def plot_sliding_column_process(
         self,
         *,
-        scan_df: pd.DataFrame,
+        sliding_df: pd.DataFrame,
         processes: list[str] | None = None,
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs,
     ) -> tuple[Figure, Path | None]:
         """
-        Plot a time-height curtain of process labels from a whole-column scan.
+        Plot a time-height curtain of process labels from a whole-sliding column.
 
         The input is the dataframe returned by
-        :meth:`build_column_process_scan_dataframe`.
+        :meth:`build_sliding_column_process_dataframe`.
         """
-        return process_plotting.plot_column_process_scan(
+        return process_plotting.plot_sliding_column_process(
             self,
-            scan_df=scan_df,
+            sliding_df=sliding_df,
             processes=processes,
             savefig=savefig,
             output_dir=output_dir,

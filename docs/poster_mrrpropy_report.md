@@ -15,16 +15,16 @@ Repositorio analizado: `C:\Users\Fizico\Documents\github\mrrpropy`
 Arquitectura por modulos:
 
 - `mrrpropy/raw_class.py`: fachada de alto nivel. Expone carga RAW, subsetting, perfiles, espectros, procesado, plots y analisis de procesos.
-- `mrrpropy/processing/raprompro.py`: wrapper xarray del nucleo cientifico RaProMPro. Convierte datos CF/Radial MRR-PRO en productos microfisicos.
-- `mrrpropy/RaProMPro_original.py`: implementacion cientifica original conservada como referencia.
-- `mrrpropy/RaProMPro_optimized.py`: implementacion optimizada usada por el wrapper canonico.
-- `mrrpropy/analysis/processes.py`: analisis de tendencias verticales, clasificacion de procesos, dataframes dinamicos, escaneo de columna y deteccion de episodios.
-- `mrrpropy/analysis/process_features.py`: construccion de `process_features` en dos fases: rasgos microfisicos, espectrales y de contexto.
-- `mrrpropy/hexagram.py`: generacion de hexagramas RGB, mapeo RGB a celdas y mascaras teoricas por proceso.
-- `mrrpropy/processes.py`: metadatos compartidos de procesos, firmas de clasificacion, codigos y marcadores.
+- `mrrpropy/preprocessing/raprompro.py`: wrapper xarray del nucleo cientifico RaProMPro. Convierte datos CF/Radial MRR-PRO en productos microfisicos.
+- `mrrpropy/preprocessing/RaProMPro_original.py`: implementacion cientifica original conservada como referencia.
+- `mrrpropy/preprocessing/RaProMPro_optimized.py`: implementacion optimizada usada por el wrapper canonico.
+- `mrrpropy/rain_process_classification/rain_process_algorithm.py`: analisis de tendencias verticales, clasificacion de procesos, dataframes dinamicos, ventanas deslizantes de columna y deteccion de episodios.
+- `mrrpropy/rain_process_classification/process_features.py`: construccion de `process_features` en dos fases: rasgos microfisicos, espectrales y de contexto.
+- `mrrpropy/rain_process_classification/hexagram.py`: generacion de hexagramas RGB, mapeo RGB a celdas y mascaras teoricas por proceso.
+- `mrrpropy/rain_process_classification/rain_process_info.py`: metadatos compartidos de procesos, firmas de clasificacion, codigos y marcadores.
 - `mrrpropy/plotting/`: funciones de visualizacion RAW, espectral, procesada y de procesos.
 - `mrrpropy/cli/main.py`: CLI minima (`mrrpropy version`).
-- `scripts/` y `workbench/scripts/`: cadenas reproducibles para procesar ficheros, generar quicklooks, analisis de capas y escaneos de columna.
+- `scripts/` y `workbench/scripts/`: cadenas reproducibles para procesar ficheros, generar quicklooks, analisis de capas y ventanas deslizantes de columna.
 - `tests/`: tests unitarios, integracion y regresion visual. Los tests de `tests/rain_processes/` documentan el flujo cientifico de procesos.
 
 ## 2. Flujo de procesado desde RAW hasta productos finales
@@ -81,7 +81,7 @@ Variables de analisis de procesos:
 - Campos canonicos: `trend_mag_*`, `trend_sign_*`, `trend_strength_*`, `trend_score_*`, `trend_p_*`.
 - RGB y hexagrama: `R`, `G`, `B`, `minutes`, `hex_x`, `hex_y`, `hex_area`.
 - Clasificacion: `proc_label`, `strength`, `sign_R`, `sign_G`, `sign_B`.
-- Dataframes: `Dm_top`, `Dm_bottom`, `Dm_delta`, `Dm_delta_pct`, `Dm_rate_per_km` y analogos para `Nw` y `LWC`; `window_id`, `z_min_m`, `z_max_m`, `z_center_m` en escaneos.
+- Dataframes: `Dm_top`, `Dm_bottom`, `Dm_delta`, `Dm_delta_pct`, `Dm_rate_per_km` y analogos para `Nw` y `LWC`; `window_id`, `z_min_m`, `z_max_m`, `z_center_m` en ventanas deslizantes.
 
 ## 4. Algoritmos implementados para deteccion o clasificacion de procesos de precipitacion
 
@@ -120,7 +120,7 @@ La clasificacion usa el signo de las tendencias de `Dm`, `Nw` y `LWC`, con RGB s
 - `G = Nw`
 - `B = LWC`
 
-Firmas implementadas en `mrrpropy/processes.py`:
+Firmas implementadas en `mrrpropy/rain_process_classification/rain_process_info.py`:
 
 | Proceso | Firma `(Dm, Nw, LWC)` |
 |---|---|
@@ -142,9 +142,9 @@ Muestras con fuerza insuficiente o p-value no aceptado se etiquetan como `steady
 - `get_process_hexagram_mask()` genera mascaras teoricas de cada proceso sobre el hexagrama.
 - `plot_classified_processes_on_hexagram()` combina muestras clasificadas, fondo RGB y mascaras de procesos.
 
-### Escaneo de columna y episodios
+### Ventanas deslizantes de columna y episodios
 
-- `build_column_process_scan_dataframe()` recorre la columna con ventanas verticales deslizantes (`window_thickness_m`, `window_step_m`).
+- `build_sliding_column_process_dataframe()` recorre la columna con ventanas verticales deslizantes (`window_thickness_m`, `window_step_m`).
 - En cada ventana ejecuta el mismo analisis de tendencias y clasificacion.
 - `detect_column_process_episodes()` detecta episodios persistentes por ventana cuando un proceso aparece en perfiles consecutivos.
 - `build_fused_column_process_dataframe()` fusiona detecciones verticalmente adyacentes del mismo proceso y recomputa tendencias en la capa fusionada.
@@ -153,10 +153,10 @@ Muestras con fuerza insuficiente o p-value no aceptado se etiquetan como `steady
 
 No existe un paquete fuente llamado literalmente `mrrpropy/rain_processes`; el nombre aparece principalmente en tests. Los modulos funcionales equivalentes son:
 
-- `mrrpropy/analysis/processes.py`: nucleo de `rain_process_analyze`, `classify_rain_process`, escaneo de columna, episodios y dataframes.
-- `mrrpropy/analysis/process_features.py`: extraccion de rasgos para clasificacion por fases.
-- `mrrpropy/hexagram.py`: RGB/hexagrama y mascaras teoricas por proceso.
-- `mrrpropy/processes.py`: firmas y metadatos de procesos.
+- `mrrpropy/rain_process_classification/rain_process_algorithm.py`: nucleo de `rain_process_analyze`, `classify_rain_process`, ventanas deslizantes de columna, episodios y dataframes.
+- `mrrpropy/rain_process_classification/process_features.py`: extraccion de rasgos para clasificacion por fases.
+- `mrrpropy/rain_process_classification/hexagram.py`: RGB/hexagrama y mascaras teoricas por proceso.
+- `mrrpropy/rain_process_classification/rain_process_info.py`: firmas y metadatos de procesos.
 - `mrrpropy/plotting/processes.py`: figuras de procesos, hexagramas, cortinas de columna, scatter y quicklooks fusionados.
 - `mrrpropy/raw_class.py`: metodos publicos que delegan en los modulos anteriores.
 
@@ -165,7 +165,7 @@ Tests relacionados:
 - `tests/rain_processes/test_analysis_and_classification.py`
 - `tests/rain_processes/test_trend_stats.py`
 - `tests/rain_processes/test_process_fixed_layer_plots.py`
-- `tests/rain_processes/test_process_scan_plots.py`
+- `tests/rain_processes/test_process_sliding_plots.py`
 - `tests/rain_processes/test_plot_fused_process_quicklook.py`
 - `tests/rain_processes/test_fused_column_process_dataframe.py`
 - `tests/rain_processes/get_features/test_micro_features.py`
@@ -194,9 +194,9 @@ Figuras generables por scripts, no necesariamente versionadas:
 - Perfiles microfisicos: `*_RaProMPro-preprocessed_profiles.png`.
 - Correccion PIA: `transmittance_correction_consistency.png`, `transmittance_correction_quicklook.png`.
 - Procesos de lluvia: `rain_process_hex_*.png`, `processes_evolution_*.png`, `classified_processes_hexagram_*.png`.
-- Escaneo de columna: `column_process_scan_*.png`, `column_process_events_hexagram_*.png`.
+- Ventanas deslizantes de columna: `sliding_column_process_*.png`, `column_process_events_hexagram_*.png`.
 - Fusion de eventos: `fused_process_quicklook_*.png`.
-- Comparaciones scatter: `scan_process_scatter_compare_*.png`.
+- Comparaciones scatter: `sliding_process_scatter_compare_*.png`.
 
 ## 7. Notebooks o ejemplos demostrativos
 
@@ -218,7 +218,7 @@ Documentacion con ejemplos:
 
 Scripts reproducibles:
 
-- `scripts/run_daily_chain.py`: cadena completa para un dia: procesado, plots RAW/procesados, analisis de capa y escaneo de columna.
+- `scripts/run_daily_chain.py`: cadena completa para un dia: procesado, plots RAW/procesados, analisis de capa y ventanas deslizantes de columna.
 - `scripts/run_single_hour.py`: cadena equivalente para un fichero horario.
 - `scripts/benchmark_raprompro.py`: benchmark del procesado canonico.
 - `scripts/create_raw_subset.py`: creacion de fixture RAW reducido.
@@ -244,7 +244,7 @@ El repositorio es principalmente una herramienta metodologica; no contiene un an
 - Clasificacion de procesos microfisicos de precipitacion basada en tendencias verticales de `Dm`, `Nw` y `LWC`.
 - Sustitucion de OLS como metodo por defecto por Kendall tau + Theil-Sen, mas robusto frente a outliers y perfiles no lineales.
 - Proyeccion RGB/hexagrama de las firmas microfisicas, util para comunicar visualmente crecimiento, evaporacion, activacion, ruptura y depletion.
-- Escaneo de columna con ventanas deslizantes y deteccion de episodios persistentes, lo que permite pasar de diagnosticos de capa fija a estructuras tiempo-altura.
+- Ventanas deslizantes de columna y deteccion de episodios persistentes, lo que permite pasar de diagnosticos de capa fija a estructuras tiempo-altura.
 
 Referencias cientificas documentadas en el repositorio:
 
@@ -270,7 +270,7 @@ flowchart TD
     M --> N["RGB mapping and hexagram"]
     N --> O["classify_rain_process()"]
     O --> P["Process labels and dynamics dataframe"]
-    P --> Q["Column scan, fused layers, episodes"]
+    P --> Q["Sliding column, fused layers, episodes"]
 ```
 
 ## 10. Lista de figuras PNG, JPG, PDF y SVG existentes en `docs`, `examples` o `notebooks`
@@ -283,4 +283,3 @@ Busqueda acotada a `docs/`, `examples/` y `notebooks/`:
 | `docs/assets/hero_quicklook_ze.png` | PNG | 1600 x 800 px |
 
 No se encontraron ficheros `.jpg`, `.jpeg`, `.pdf` ni `.svg` en esas rutas. Tampoco existen carpetas versionadas `examples/` o `notebooks/` en la raiz del repositorio; el notebook existente esta en `mrrpropy/RGB_hexagram_tutorial_for_generation.ipynb`.
-

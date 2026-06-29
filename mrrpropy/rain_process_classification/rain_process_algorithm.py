@@ -9,13 +9,13 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.processes import (
+from mrrpropy.rain_process_classification.rain_process_info import (
     PROCESS_CODES as _PROCESS_CODES,
     PROCESS_MARKERS as _PROCESS_MARKERS,
     PROCESS_SIGNATURES as _PROCESS_SIGNATURES,
     ProcessSignature,
 )
-from mrrpropy.hexagram import (
+from mrrpropy.rain_process_classification.hexagram import (
     build_rgb_from_unit_scores,
     get_hexagram_assets,
     map_rgb_to_hexagram,
@@ -644,7 +644,7 @@ def rain_process_analyze(
     Analyse rain-process evolution in one fixed layer over a selected period.
 
     This is the fixed-layer analysis primitive used internally by the public
-    scan workflow. Positive trend/change means increase while descending from
+    sliding workflow. Positive trend/change means increase while descending from
     ``z_top_m`` to ``z_bottom_m``.
 
     The workflow computes method-neutral canonical trend variables used
@@ -1420,15 +1420,15 @@ def _build_sliding_layer_windows(
     return windows
 
 
-def _detect_process_runs_from_scan(
-    scan_df: pd.DataFrame,
+def _detect_process_runs_from_sliding(
+    sliding_df: pd.DataFrame,
     *,
     min_consecutive_profiles: int,
     ignored_labels: set[str] | None = None,
 ) -> pd.DataFrame:
     if min_consecutive_profiles <= 0:
         raise ValueError("min_consecutive_profiles must be positive.")
-    if scan_df.empty:
+    if sliding_df.empty:
         return pd.DataFrame()
 
     ignored = (
@@ -1438,7 +1438,7 @@ def _detect_process_runs_from_scan(
     )
 
     rows: list[dict[str, object]] = []
-    df = scan_df.sort_values(["window_id", "time"]).copy()
+    df = sliding_df.sort_values(["window_id", "time"]).copy()
 
     for window_id, group in df.groupby("window_id", sort=True):
         labels = group["proc_label"].astype(str).to_numpy()
@@ -1532,7 +1532,7 @@ def _detect_process_runs_from_scan(
     ).reset_index(drop=True)
 
 
-def build_column_process_scan_dataframe(
+def build_sliding_column_process_dataframe(
     subject: SupportsRainAnalysis,
     *,
     period: tuple[datetime, datetime],
@@ -1551,7 +1551,7 @@ def build_column_process_scan_dataframe(
     max_tau_pvalue: float | None = None,
 ) -> pd.DataFrame:
     """
-    Scan the whole processed column with a sliding vertical window.
+    Slide across the whole processed column with a sliding vertical window.
 
     For each window, the function runs the standard rain-process analysis and
     classification pipeline, then exports a per-sample dataframe. The output is
@@ -1562,7 +1562,7 @@ def build_column_process_scan_dataframe(
     or ``min_tau_strength``, and ``subject`` exposes a ``micro_cfg`` attribute,
     the corresponding values are taken from that configuration.
 
-    ``window_step_m=None`` means "raw resolution": infer the scan step from the
+    ``window_step_m=None`` means "raw resolution": infer the sliding step from the
     native range-grid spacing (median of the range-coordinate differences).
     """
     ds = _resolve_processed_dataset(subject)
@@ -1649,11 +1649,11 @@ def build_column_process_scan_dataframe(
         frame["window_thickness_m"] = float(thickness_m)
         frame["window_step_m"] = float(step_m)
         frame["trend_method"] = str(analysis.attrs.get("trend_method", trend_method))
-        frame["selection_mode"] = "scan"
+        frame["selection_mode"] = "sliding"
         frames.append(frame)
 
-    scan_df = pd.concat(frames, ignore_index=True)
-    scan_df.attrs = {
+    sliding_df = pd.concat(frames, ignore_index=True)
+    sliding_df.attrs = {
         "period_start": str(np.datetime_as_string(np.datetime64(period[0]), unit="s")),
         "period_end": str(np.datetime_as_string(np.datetime64(period[1]), unit="s")),
         "window_thickness_m": float(thickness_m),
@@ -1666,14 +1666,14 @@ def build_column_process_scan_dataframe(
         "trend_method": str(trend_method),
         "tau_zero_tol": float(tau_zero_tol),
         "k": int(k),
-        "selection_mode": "scan",
+        "selection_mode": "sliding",
     }
-    return scan_df
+    return sliding_df
 
 
 def build_fused_column_process_dataframe(
     subject: SupportsRainAnalysis,
-    scan_df: pd.DataFrame,
+    sliding_df: pd.DataFrame,
     *,
     min_consecutive: int = 3,
     allowed_processes: tuple[str, ...] | None = None,
@@ -1690,10 +1690,10 @@ def build_fused_column_process_dataframe(
     vars_trend: tuple[str, str, str] | None = None,
 ) -> pd.DataFrame:
     """
-    Exploratory Option B: fuse vertical scan detections into consolidated layers.
+    Exploratory Option B: fuse vertical sliding detections into consolidated layers.
 
-    The input ``scan_df`` is expected to be the dataframe returned by
-    :func:`build_column_process_scan_dataframe`. For each time step, the
+    The input ``sliding_df`` is expected to be the dataframe returned by
+    :func:`build_sliding_column_process_dataframe`. For each time step, the
     function searches for *vertically adjacent* runs of the same process label,
     fuses each run into one vertical layer, recomputes the microphysical trends
     on the fused layer using ``subject.raprompro``, and reclassifies the fused
@@ -1702,7 +1702,7 @@ def build_fused_column_process_dataframe(
     Grouping logic (per time step)
     ------------------------------
     - Rows are sorted vertically (top-to-bottom) so adjacent rows represent
-      adjacent scan windows in height.
+      adjacent sliding windows in height.
     - A run is a *strictly adjacent* sequence of rows with the same process
       label. Labels separated by other labels are never grouped.
     - By default, labels in ``exclude_processes`` are ignored and also break
@@ -1714,7 +1714,7 @@ def build_fused_column_process_dataframe(
     Fused-layer recomputation
     -------------------------
     Trends are recomputed on the actual fused layer bounds, not inferred from
-    the individual scan-window rows. For each fused event, the trend is
+    the individual sliding-window rows. For each fused event, the trend is
     recomputed on a single time step by subsetting ``subject.raprompro`` to the
     event time.
 
@@ -1728,9 +1728,9 @@ def build_fused_column_process_dataframe(
     event and populates recomputed fields with NaNs, while recording a short
     error message in ``recompute_error``.
     """
-    if not isinstance(scan_df, pd.DataFrame):
-        raise TypeError("scan_df must be a pandas DataFrame.")
-    if scan_df.empty:
+    if not isinstance(sliding_df, pd.DataFrame):
+        raise TypeError("sliding_df must be a pandas DataFrame.")
+    if sliding_df.empty:
         return pd.DataFrame()
     if min_consecutive <= 0:
         raise ValueError("min_consecutive must be positive.")
@@ -1778,17 +1778,17 @@ def build_fused_column_process_dataframe(
             if alt in df.columns:
                 return alt
         raise KeyError(
-            f"scan_df is missing column {requested!r}. Available columns: {list(df.columns)!r}"
+            f"sliding_df is missing column {requested!r}. Available columns: {list(df.columns)!r}"
         )
 
-    # `build_column_process_scan_dataframe` uses z_bottom_m/z_top_m; keep the public
+    # `build_sliding_column_process_dataframe` uses z_bottom_m/z_top_m; keep the public
     # signature generic, but accept the package-native names transparently.
-    resolved_time_col = _resolve_column(scan_df, time_col, ("time",))
-    resolved_process_col = _resolve_column(scan_df, process_col, ("proc_label",))
-    resolved_z_top_col = _resolve_column(scan_df, z_top_col, ("z_top_m", "z_max_m"))
-    resolved_z_bottom_col = _resolve_column(scan_df, z_bottom_col, ("z_bottom_m", "z_min_m"))
+    resolved_time_col = _resolve_column(sliding_df, time_col, ("time",))
+    resolved_process_col = _resolve_column(sliding_df, process_col, ("proc_label",))
+    resolved_z_top_col = _resolve_column(sliding_df, z_top_col, ("z_top_m", "z_max_m"))
+    resolved_z_bottom_col = _resolve_column(sliding_df, z_bottom_col, ("z_bottom_m", "z_min_m"))
 
-    has_window_id = "window_id" in scan_df.columns
+    has_window_id = "window_id" in sliding_df.columns
 
     def _iter_vertical_runs(df_t: pd.DataFrame) -> list[dict[str, object]]:
         if df_t.empty:
@@ -1796,7 +1796,7 @@ def build_fused_column_process_dataframe(
 
         df_sorted = df_t.copy()
         if has_window_id:
-            # In the scan workflow, window_id increases with height.
+            # In the sliding workflow, window_id increases with height.
             df_sorted = df_sorted.sort_values("window_id", ascending=False)
         else:
             # Generic fallback: sort by top height (highest first), then bottom.
@@ -1927,10 +1927,10 @@ def build_fused_column_process_dataframe(
 
         return df_one
 
-    scan_times = pd.to_datetime(scan_df[resolved_time_col])
+    sliding_times = pd.to_datetime(sliding_df[resolved_time_col])
     out_rows: list[pd.DataFrame] = []
 
-    for time_value, df_t in scan_df.assign(**{resolved_time_col: scan_times}).groupby(
+    for time_value, df_t in sliding_df.assign(**{resolved_time_col: sliding_times}).groupby(
         resolved_time_col, sort=True
     ):
         time_value = pd.Timestamp(time_value)
@@ -1993,8 +1993,8 @@ def build_fused_column_process_dataframe(
         return pd.DataFrame()
 
     out = pd.concat(out_rows, ignore_index=True)
-    out.attrs = dict(getattr(scan_df, "attrs", {}))
-    out.attrs["selection_mode"] = "scan_fused_option_b"
+    out.attrs = dict(getattr(sliding_df, "attrs", {}))
+    out.attrs["selection_mode"] = "sliding_fused_option_b"
     out.attrs["min_consecutive"] = int(min_consecutive)
     out.attrs["excluded_processes"] = tuple(exclude_processes)
     out.attrs["allowed_processes"] = tuple(allowed_processes) if allowed_processes is not None else None
@@ -2011,23 +2011,23 @@ def build_fused_column_process_dataframe(
 def detect_column_process_episodes(
     subject: SupportsRainAnalysis,
     *,
-    scan_df: pd.DataFrame,
+    sliding_df: pd.DataFrame,
     min_consecutive_profiles: int = 6,
 ) -> pd.DataFrame:
     """
-    Detect temporally persistent process episodes from a column scan dataframe.
+    Detect temporally persistent process episodes from a sliding column dataframe.
 
     Only named microphysical processes are promoted to episodes; isolated
     ``unknown`` or ``steady_or_weak`` samples are ignored. Episodes are defined
     independently in each sliding vertical window.
     """
     del subject
-    if not isinstance(scan_df, pd.DataFrame):
-        raise TypeError("scan_df must be a pandas DataFrame.")
-    episodes = _detect_process_runs_from_scan(
-        scan_df,
+    if not isinstance(sliding_df, pd.DataFrame):
+        raise TypeError("sliding_df must be a pandas DataFrame.")
+    episodes = _detect_process_runs_from_sliding(
+        sliding_df,
         min_consecutive_profiles=int(min_consecutive_profiles),
     )
-    episodes.attrs = dict(getattr(scan_df, "attrs", {}))
+    episodes.attrs = dict(getattr(sliding_df, "attrs", {}))
     episodes.attrs["min_consecutive_profiles"] = int(min_consecutive_profiles)
     return episodes

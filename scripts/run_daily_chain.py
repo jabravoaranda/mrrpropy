@@ -377,7 +377,7 @@ def _save_layer_rain_analysis(
             pass
 
 
-def _save_column_event_scan(
+def _save_column_event_sliding(
     mrr: MRRProData,
     *,
     period: tuple[pd.Timestamp, pd.Timestamp],
@@ -387,7 +387,7 @@ def _save_column_event_scan(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    scan_df = mrr.build_column_process_scan_dataframe(
+    sliding_df = mrr.build_sliding_column_process_dataframe(
         period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
         k=k,
         window_thickness_m=WINDOW_THICKNESS_M,
@@ -396,23 +396,23 @@ def _save_column_event_scan(
         trend_method="kendall_theilsen",
     )
     episodes_df = mrr.detect_column_process_episodes(
-        scan_df=scan_df,
+        sliding_df=sliding_df,
         min_consecutive_profiles=6,
     )
 
-    scan_df.to_csv(output_dir / "column_process_scan.csv", index=False)
+    sliding_df.to_csv(output_dir / "sliding_column_process.csv", index=False)
     episodes_df.to_csv(output_dir / "column_process_episodes.csv", index=False)
 
-    scan_df_plot = scan_df[
-        ~scan_df["proc_label"].isin(["unknown", "no_data"])
+    sliding_df_plot = sliding_df[
+        ~sliding_df["proc_label"].isin(["unknown", "no_data"])
     ].copy()
-    scan_df_plot.attrs = dict(getattr(scan_df, "attrs", {}))
-    scan_df_plot.to_csv(
-        output_dir / "column_process_scan_plot_filtered.csv",
+    sliding_df_plot.attrs = dict(getattr(sliding_df, "attrs", {}))
+    sliding_df_plot.to_csv(
+        output_dir / "sliding_column_process_plot_filtered.csv",
         index=False,
     )
 
-    scan_df["time"] = pd.to_datetime(scan_df["time"])
+    sliding_df["time"] = pd.to_datetime(sliding_df["time"])
     if not episodes_df.empty:
         episodes_df["start_time"] = pd.to_datetime(episodes_df["start_time"])
         episodes_df["end_time"] = pd.to_datetime(episodes_df["end_time"])
@@ -420,32 +420,32 @@ def _save_column_event_scan(
     event_frames: list[pd.DataFrame] = []
     for _, event in episodes_df.iterrows():
         mask = (
-            (scan_df["proc_label"] == event["proc_label"])
-            & (scan_df["window_id"] == event["window_id"])
-            & (scan_df["time"] >= event["start_time"])
-            & (scan_df["time"] <= event["end_time"])
+            (sliding_df["proc_label"] == event["proc_label"])
+            & (sliding_df["window_id"] == event["window_id"])
+            & (sliding_df["time"] >= event["start_time"])
+            & (sliding_df["time"] <= event["end_time"])
         )
-        event_frames.append(scan_df.loc[mask])
+        event_frames.append(sliding_df.loc[mask])
 
     if event_frames:
-        scan_df_events = pd.concat(event_frames, ignore_index=True).drop_duplicates()
+        sliding_df_events = pd.concat(event_frames, ignore_index=True).drop_duplicates()
     else:
-        scan_df_events = scan_df.iloc[0:0].copy()
+        sliding_df_events = sliding_df.iloc[0:0].copy()
 
-    scan_df_events = scan_df_events[
-        ~scan_df_events["proc_label"].isin(
+    sliding_df_events = sliding_df_events[
+        ~sliding_df_events["proc_label"].isin(
             ["steady_or_weak", "unknown", "no_data"]
         )
     ].copy()
-    scan_df_events.attrs = dict(getattr(scan_df, "attrs", {}))
-    scan_df_events.to_csv(
-        output_dir / "column_process_scan_events_only.csv",
+    sliding_df_events.attrs = dict(getattr(sliding_df, "attrs", {}))
+    sliding_df_events.to_csv(
+        output_dir / "sliding_column_process_events_only.csv",
         index=False,
     )
 
-    if not scan_df_plot.empty:
-        fig, _ = mrr.plot_column_process_scan(
-            scan_df=scan_df_plot,
+    if not sliding_df_plot.empty:
+        fig, _ = mrr.plot_sliding_column_process(
+            sliding_df=sliding_df_plot,
             color_mode="hexagram",
             processes=['breakup', 'growth_depletion', 'growth_depletion_loss', 'growth_depletion_gain', 'activation', 'evaporation', 'growth'],
             savefig=True,
@@ -457,9 +457,9 @@ def _save_column_event_scan(
         )
         plt.close(fig)
 
-    if not scan_df_events.empty:
-        fig, _ = mrr.plot_column_process_scan(
-            scan_df=scan_df_events,
+    if not sliding_df_events.empty:
+        fig, _ = mrr.plot_sliding_column_process(
+            sliding_df=sliding_df_events,
             color_mode="hexagram",
             processes=['breakup', 'growth_depletion', 'growth_depletion_loss', 'growth_depletion_gain', 'activation', 'evaporation', 'growth'],
             savefig=False,
@@ -469,8 +469,8 @@ def _save_column_event_scan(
             alpha=0.92,
             scale_by_strength=True,
         )
-        period_start = scan_df_events.attrs.get("period_start", "t0")
-        period_end = scan_df_events.attrs.get("period_end", "t1")
+        period_start = sliding_df_events.attrs.get("period_start", "t0")
+        period_end = sliding_df_events.attrs.get("period_end", "t1")
         safe_t0 = str(period_start).replace(":", "").replace("-", "").replace(" ", "_")
         safe_t1 = str(period_end).replace(":", "").replace("-", "").replace(" ", "_")
         events_path = output_dir / f"column_process_events_hexagram_{safe_t0}_{safe_t1}.png"
@@ -541,7 +541,7 @@ def _analyze_one_file(
             dpi=dpi,
             include_spectral_plots=include_spectral_plots,
         )
-        _save_column_event_scan(
+        _save_column_event_sliding(
             mrr,
             period=period,
             k=k,
@@ -566,7 +566,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Run the full mrrpropy daily chain: RaProMPro processing, raw and "
-            "processed plots, layer rain analysis, and column process-event scan."
+            "processed plots, layer rain analysis, and column process-event sliding."
         )
     )
     parser.add_argument(
@@ -614,7 +614,7 @@ def main() -> None:
         action="store_true",
         help=(
             "Also run the legacy fixed-layer rain analysis. By default the daily "
-            "chain only runs the automatic whole-column scan."
+            "chain only runs the automatic whole-sliding column."
         ),
     )
     parser.add_argument(
@@ -653,7 +653,7 @@ def main() -> None:
     print(f"Input directory : {input_dir}")
     print(f"Output root     : {output_root}")
     print(f"RAW files found : {len(raw_files)}")
-    print("Column analysis : automatic whole-column scan")
+    print("Column analysis : automatic whole-sliding column")
     if args.include_spectral_plots:
         print("Spectral plots  : enabled")
     else:

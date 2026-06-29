@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.processes import PROCESS_CODES, PROCESS_MARKERS, PROCESS_SIGNATURES
-from mrrpropy.hexagram import (
+from mrrpropy.rain_process_classification.rain_process_info import PROCESS_CODES, PROCESS_MARKERS, PROCESS_SIGNATURES
+from mrrpropy.rain_process_classification.hexagram import (
     get_hexagram_assets,
     get_process_hexagram_mask,
 )
@@ -762,7 +762,7 @@ def plot_rain_process_in_layer_hexagram(
     t0s = analysis.attrs.get("period_start", None)
     t1s = analysis.attrs.get("period_end", None)
     layer_txt = (
-        f"{'Scan window' if selection_mode == 'scan' else 'Fixed layer'} "
+        f"{'Sliding window' if selection_mode == 'sliding' else 'Fixed layer'} "
         f"{float(z_bottom_m):.0f}-{float(z_top_m):.0f} m"
         if (z_bottom_m is not None and z_top_m is not None)
         else "Capa (desconocida)"
@@ -969,16 +969,16 @@ def plot_processes_evolution(
     return fig, filepath
 
 
-def plot_column_process_scan(
+def plot_sliding_column_process(
     subject: SupportsProcessPlotting,
     *,
-    scan_df: pd.DataFrame,
+    sliding_df: pd.DataFrame,
     processes: list[str] | None = None,
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
 ) -> tuple[Figure, Path | None]:
-    """Plot a time-height curtain of process labels from a column scan dataframe."""
+    """Plot a time-height curtain of process labels from a sliding column dataframe."""
     pcfg = subject.plot_cfg
     figsize = kwargs.get("figsize", getattr(pcfg, "figsize_profiles", (14, 8)))
     dpi = kwargs.get("dpi", pcfg.dpi)
@@ -1001,14 +1001,14 @@ def plot_column_process_scan(
     contour_sigma = float(kwargs.get("contour_sigma", 2.0))
     contour_background = bool(kwargs.get("contour_background", True))
 
-    if not isinstance(scan_df, pd.DataFrame):
-        raise TypeError("scan_df must be a pandas DataFrame.")
+    if not isinstance(sliding_df, pd.DataFrame):
+        raise TypeError("sliding_df must be a pandas DataFrame.")
     required = {"time", "z_center_m", "proc_label"}
-    missing = sorted(required.difference(scan_df.columns))
+    missing = sorted(required.difference(sliding_df.columns))
     if missing:
-        raise KeyError(f"scan_df must contain columns: {missing}")
-    if scan_df.empty:
-        raise ValueError("scan_df is empty.")
+        raise KeyError(f"sliding_df must contain columns: {missing}")
+    if sliding_df.empty:
+        raise ValueError("sliding_df is empty.")
     if color_mode not in {"process", "hexagram", "event", "gaussian", "contour"}:
         raise ValueError("color_mode must be 'process', 'hexagram', 'event', 'gaussian' or 'contour'.")
     if color_mode == "event" and event_process is None:
@@ -1034,7 +1034,7 @@ def plot_column_process_scan(
         },
     )
 
-    df = scan_df.copy()
+    df = sliding_df.copy()
     df["time"] = pd.to_datetime(df["time"])
     df["proc_label"] = df["proc_label"].astype(str)
     if "proc_strength" in df.columns:
@@ -1048,7 +1048,7 @@ def plot_column_process_scan(
     hex_colors: np.ndarray | None = None
     if color_mode in {"hexagram", "gaussian"}:
         if {"hex_x", "hex_y"}.issubset(df.columns):
-            k_attr = df.attrs.get("k", scan_df.attrs.get("k", None))
+            k_attr = df.attrs.get("k", sliding_df.attrs.get("k", None))
             if k_attr is not None:
                 hex_assets = get_hexagram_assets(k=int(k_attr))
                 rgb_cells = np.asarray(hex_assets["rgb_cells"], float)
@@ -1087,7 +1087,7 @@ def plot_column_process_scan(
         }
         missing_event_cols = sorted(required_cols.difference(df.columns))
         if missing_event_cols:
-            raise KeyError(f"scan_df must contain columns for event mode: {missing_event_cols}")
+            raise KeyError(f"sliding_df must contain columns for event mode: {missing_event_cols}")
         signs = np.column_stack(
             [
                 pd.to_numeric(df["trend_sign_Dm"], errors="coerce").to_numpy(dtype=float),
@@ -1309,11 +1309,11 @@ def plot_column_process_scan(
     ax.grid(True, which="both", linestyle="--", linewidth=0.45, alpha=0.35)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
 
-    period_start = scan_df.attrs.get("period_start", None)
-    period_end = scan_df.attrs.get("period_end", None)
-    thickness = scan_df.attrs.get("window_thickness_m", None)
-    step = scan_df.attrs.get("window_step_m", None)
-    min_tau_strength = scan_df.attrs.get("min_tau_strength", None)
+    period_start = sliding_df.attrs.get("period_start", None)
+    period_end = sliding_df.attrs.get("period_end", None)
+    thickness = sliding_df.attrs.get("window_thickness_m", None)
+    step = sliding_df.attrs.get("window_step_m", None)
+    min_tau_strength = sliding_df.attrs.get("min_tau_strength", None)
     subtitle_parts = []
     if thickness is not None:
         subtitle_parts.append(f"window={float(thickness):.0f} m")
@@ -1322,7 +1322,7 @@ def plot_column_process_scan(
     if min_tau_strength is not None:
         subtitle_parts.append(f"min_tau_strength={float(min_tau_strength):.2f}")
     subtitle = " | ".join(subtitle_parts)
-    title = "Column Process Scan"
+    title = "Sliding Column Process"
     if period_start and period_end:
         title = f"{title} | {period_start[0:16].replace('T', ' ')} - {period_end[11:16]}"
     if subtitle:
@@ -1347,14 +1347,14 @@ def plot_column_process_scan(
         outdir.mkdir(parents=True, exist_ok=True)
         safe_t0 = str(period_start or "t0").replace(":", "").replace("-", "").replace(" ", "_")
         safe_t1 = str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
-        filepath = outdir / f"column_process_scan_{color_mode}_{safe_t0}_{safe_t1}.png"
+        filepath = outdir / f"sliding_column_process_{color_mode}_{safe_t0}_{safe_t1}.png"
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
     return fig, filepath
 
 
 def plot_fused_process_quicklook(
-    scan_df: pd.DataFrame,
+    sliding_df: pd.DataFrame,
     fused_df: pd.DataFrame,
     *,
     processes: list[str] | None = None,
@@ -1366,7 +1366,7 @@ def plot_fused_process_quicklook(
     z_bottom_fused_col: str = "z_bottom_fused",
     process_fused_col: str = "proc_label_fused",
     figsize: tuple[float, float] = (10, 6),
-    alpha_scan: float = 0.2,
+    alpha_sliding: float = 0.2,
     alpha_fused: float = 0.6,
     savefig: bool = False,
     output_dir: Path | None = None,
@@ -1377,25 +1377,25 @@ def plot_fused_process_quicklook(
     Quicklook plot to visually validate fused vertical process events.
 
     The plot overlays:
-    - the original scan detections as semi-transparent points (context),
+    - the original sliding detections as semi-transparent points (context),
     - fused events as vertical rectangles at each time step.
 
     This is a lightweight diagnostic plot intended for exploratory validation.
 
     The layout, defaults, and ``savefig`` behaviour are intentionally aligned
-    with :func:`plot_column_process_scan` to make quicklooks consistent across
+    with :func:`plot_sliding_column_process` to make quicklooks consistent across
     the package.
 
-    If ``processes`` is provided, both the scan background and fused rectangles
+    If ``processes`` is provided, both the sliding background and fused rectangles
     are filtered to show only those process labels (same behaviour as
-    :func:`plot_column_process_scan`).
+    :func:`plot_sliding_column_process`).
     """
-    if not isinstance(scan_df, pd.DataFrame):
-        raise TypeError("scan_df must be a pandas DataFrame.")
+    if not isinstance(sliding_df, pd.DataFrame):
+        raise TypeError("sliding_df must be a pandas DataFrame.")
     if not isinstance(fused_df, pd.DataFrame):
         raise TypeError("fused_df must be a pandas DataFrame.")
-    if scan_df.empty and fused_df.empty:
-        raise ValueError("scan_df and fused_df are both empty.")
+    if sliding_df.empty and fused_df.empty:
+        raise ValueError("sliding_df and fused_df are both empty.")
 
     process_colors: dict[str, Any] = {
         "breakup": "#12af54",
@@ -1418,23 +1418,23 @@ def plot_fused_process_quicklook(
                 return alt
         raise KeyError(f"Missing column {requested!r} in dataframe.")
 
-    scan_time_col = _resolve_column(scan_df, time_col, ("time",))
-    scan_proc_col = _resolve_column(scan_df, process_col, ("proc_label",))
-    scan_top_col = _resolve_column(scan_df, z_top_col, ("z_top_m", "z_max_m"))
-    scan_bottom_col = _resolve_column(scan_df, z_bottom_col, ("z_bottom_m", "z_min_m"))
+    sliding_time_col = _resolve_column(sliding_df, time_col, ("time",))
+    sliding_proc_col = _resolve_column(sliding_df, process_col, ("proc_label",))
+    sliding_top_col = _resolve_column(sliding_df, z_top_col, ("z_top_m", "z_max_m"))
+    sliding_bottom_col = _resolve_column(sliding_df, z_bottom_col, ("z_bottom_m", "z_min_m"))
 
     fused_time_col = _resolve_column(fused_df, time_col, ("time",))
     fused_proc_col = _resolve_column(fused_df, process_fused_col, ("proc_label_fused", "proc_label"))
     fused_top_col = _resolve_column(fused_df, z_top_fused_col, ("z_top_fused",))
     fused_bottom_col = _resolve_column(fused_df, z_bottom_fused_col, ("z_bottom_fused",))
 
-    df_scan = scan_df.copy()
+    df_sliding = sliding_df.copy()
     df_fused = fused_df.copy()
 
-    df_scan[scan_time_col] = pd.to_datetime(df_scan[scan_time_col])
-    df_scan[scan_proc_col] = df_scan[scan_proc_col].astype(str)
-    df_scan[scan_top_col] = pd.to_numeric(df_scan[scan_top_col], errors="coerce")
-    df_scan[scan_bottom_col] = pd.to_numeric(df_scan[scan_bottom_col], errors="coerce")
+    df_sliding[sliding_time_col] = pd.to_datetime(df_sliding[sliding_time_col])
+    df_sliding[sliding_proc_col] = df_sliding[sliding_proc_col].astype(str)
+    df_sliding[sliding_top_col] = pd.to_numeric(df_sliding[sliding_top_col], errors="coerce")
+    df_sliding[sliding_bottom_col] = pd.to_numeric(df_sliding[sliding_bottom_col], errors="coerce")
 
     df_fused[fused_time_col] = pd.to_datetime(df_fused[fused_time_col])
     df_fused[fused_proc_col] = df_fused[fused_proc_col].astype(str)
@@ -1443,14 +1443,14 @@ def plot_fused_process_quicklook(
 
     if processes is not None:
         selected_processes = {str(process) for process in processes if process is not None}
-        df_scan = df_scan[df_scan[scan_proc_col].isin(selected_processes)].copy()
+        df_sliding = df_sliding[df_sliding[sliding_proc_col].isin(selected_processes)].copy()
         df_fused = df_fused[df_fused[fused_proc_col].isin(selected_processes)].copy()
 
     # Build a deterministic color map across all labels present.
     all_labels = pd.unique(
         pd.concat(
             [
-                df_scan[scan_proc_col].dropna().astype(str),
+                df_sliding[sliding_proc_col].dropna().astype(str),
                 df_fused[fused_proc_col].dropna().astype(str),
             ],
             ignore_index=True,
@@ -1467,7 +1467,7 @@ def plot_fused_process_quicklook(
     times = pd.to_datetime(
         pd.concat(
             [
-                df_scan[scan_time_col] if not df_scan.empty else pd.Series([], dtype="datetime64[ns]"),
+                df_sliding[sliding_time_col] if not df_sliding.empty else pd.Series([], dtype="datetime64[ns]"),
                 df_fused[fused_time_col] if not df_fused.empty else pd.Series([], dtype="datetime64[ns]"),
             ],
             ignore_index=True,
@@ -1493,11 +1493,11 @@ def plot_fused_process_quicklook(
             return explicit_limits
 
         heights_m: list[np.ndarray] = []
-        if not df_scan.empty:
-            if "z_center_m" in df_scan.columns:
-                heights_m.append(pd.to_numeric(df_scan["z_center_m"], errors="coerce").to_numpy(dtype=float))
-            heights_m.append(pd.to_numeric(df_scan[scan_top_col], errors="coerce").to_numpy(dtype=float))
-            heights_m.append(pd.to_numeric(df_scan[scan_bottom_col], errors="coerce").to_numpy(dtype=float))
+        if not df_sliding.empty:
+            if "z_center_m" in df_sliding.columns:
+                heights_m.append(pd.to_numeric(df_sliding["z_center_m"], errors="coerce").to_numpy(dtype=float))
+            heights_m.append(pd.to_numeric(df_sliding[sliding_top_col], errors="coerce").to_numpy(dtype=float))
+            heights_m.append(pd.to_numeric(df_sliding[sliding_bottom_col], errors="coerce").to_numpy(dtype=float))
         if not df_fused.empty:
             heights_m.append(pd.to_numeric(df_fused[fused_top_col], errors="coerce").to_numpy(dtype=float))
             heights_m.append(pd.to_numeric(df_fused[fused_bottom_col], errors="coerce").to_numpy(dtype=float))
@@ -1512,20 +1512,20 @@ def plot_fused_process_quicklook(
 
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
 
-    # Background scan points at layer center.
-    if not df_scan.empty:
-        center_m = 0.5 * (df_scan[scan_top_col].to_numpy(dtype=float) + df_scan[scan_bottom_col].to_numpy(dtype=float))
-        finite = np.isfinite(center_m) & (~pd.isna(df_scan[scan_time_col]).to_numpy())
+    # Background sliding points at layer center.
+    if not df_sliding.empty:
+        center_m = 0.5 * (df_sliding[sliding_top_col].to_numpy(dtype=float) + df_sliding[sliding_bottom_col].to_numpy(dtype=float))
+        finite = np.isfinite(center_m) & (~pd.isna(df_sliding[sliding_time_col]).to_numpy())
         if np.any(finite):
-            for label in sorted(pd.unique(df_scan.loc[finite, scan_proc_col])):
-                mask = finite & (df_scan[scan_proc_col].to_numpy(dtype=str) == str(label))
+            for label in sorted(pd.unique(df_sliding.loc[finite, sliding_proc_col])):
+                mask = finite & (df_sliding[sliding_proc_col].to_numpy(dtype=str) == str(label))
                 if not np.any(mask):
                     continue
                 ax.scatter(
-                    df_scan.loc[mask, scan_time_col],
+                    df_sliding.loc[mask, sliding_time_col],
                     center_m[mask] / 1000.0,
                     s=10.0,
-                    alpha=float(alpha_scan),
+                    alpha=float(alpha_sliding),
                     c=[process_colors.get(str(label), "#333333")],
                     edgecolors="none",
                 )
@@ -1560,11 +1560,11 @@ def plot_fused_process_quicklook(
     ax.grid(True, which="both", linestyle="--", linewidth=0.45, alpha=0.35)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
 
-    period_start = scan_df.attrs.get("period_start", fused_df.attrs.get("period_start", None))
-    period_end = scan_df.attrs.get("period_end", fused_df.attrs.get("period_end", None))
-    thickness = scan_df.attrs.get("window_thickness_m", None)
-    step = scan_df.attrs.get("window_step_m", None)
-    min_tau_strength = scan_df.attrs.get("min_tau_strength", None)
+    period_start = sliding_df.attrs.get("period_start", fused_df.attrs.get("period_start", None))
+    period_end = sliding_df.attrs.get("period_end", fused_df.attrs.get("period_end", None))
+    thickness = sliding_df.attrs.get("window_thickness_m", None)
+    step = sliding_df.attrs.get("window_step_m", None)
+    min_tau_strength = sliding_df.attrs.get("min_tau_strength", None)
     min_consecutive = fused_df.attrs.get("min_consecutive", None)
 
     subtitle_parts = []
@@ -1589,7 +1589,7 @@ def plot_fused_process_quicklook(
     if y_limits is not None:
         ax.set_ylim(*y_limits)
 
-    # Legend based on fused labels (usually fewer than scan labels).
+    # Legend based on fused labels (usually fewer than sliding labels).
     fused_labels = []
     if not df_fused.empty:
         fused_labels = [label for label in pd.unique(df_fused[fused_proc_col]) if label]
@@ -1619,10 +1619,10 @@ def plot_fused_process_quicklook(
     return fig, filepath
 
 
-def plot_scan_process_scatter_compare(
+def plot_sliding_process_scatter_compare(
     subject: SupportsProcessPlotting,
     *,
-    scan_df: pd.DataFrame,
+    sliding_df: pd.DataFrame,
     processes: list[str],
     x: str = "Dm_layer_mean",
     y: str = "Nw_layer_mean",
@@ -1636,17 +1636,17 @@ def plot_scan_process_scatter_compare(
     output_dir: Path | None = None,
     **kwargs: Any,
 ) -> tuple[Figure, Path | None]:
-    """Compare several classified scan processes in a shared microphysical scatter."""
-    if not isinstance(scan_df, pd.DataFrame):
-        raise TypeError("scan_df must be a pandas DataFrame.")
+    """Compare several classified sliding processes in a shared microphysical scatter."""
+    if not isinstance(sliding_df, pd.DataFrame):
+        raise TypeError("sliding_df must be a pandas DataFrame.")
     selected_processes = [str(process) for process in processes if process is not None]
     if not selected_processes:
         raise ValueError("processes must contain at least one process name.")
 
     required = {"time", "proc_label", x, y, color}
-    missing = sorted(required.difference(scan_df.columns))
+    missing = sorted(required.difference(sliding_df.columns))
     if missing:
-        raise KeyError(f"scan_df must contain columns: {missing}")
+        raise KeyError(f"sliding_df must contain columns: {missing}")
 
     process_colors = kwargs.get(
         "process_colors",
@@ -1672,7 +1672,7 @@ def plot_scan_process_scatter_compare(
     markersize = float(kwargs.get("markersize", 55.0))
     alpha = float(kwargs.get("alpha", 0.85))
 
-    df = scan_df.copy()
+    df = sliding_df.copy()
     df["time"] = pd.to_datetime(df["time"])
     df["proc_label"] = df["proc_label"].astype(str)
     df = df[df["proc_label"].isin(selected_processes)].copy()
@@ -1689,7 +1689,7 @@ def plot_scan_process_scatter_compare(
         elif "z_center_m" in df.columns:
             df = df[df["z_center_m"] <= float(z_top_m)]
     if df.empty:
-        raise ValueError("No scan samples remain after filtering.")
+        raise ValueError("No sliding samples remain after filtering.")
 
     for column in (x, y, color):
         df[column] = pd.to_numeric(df[column], errors="coerce")
@@ -1777,7 +1777,7 @@ def plot_scan_process_scatter_compare(
                         )
 
     if scatter_for_cbar is None:
-        raise ValueError("No finite scan samples are available for plotting.")
+        raise ValueError("No finite sliding samples are available for plotting.")
 
     cbar = fig.colorbar(scatter_for_cbar, ax=ax)
     cbar.set_label(color, fontsize=label_fs)
@@ -1788,9 +1788,9 @@ def plot_scan_process_scatter_compare(
     ax.tick_params(labelsize=tick_fs)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.45)
 
-    title = "Scan Process Scatter Compare"
-    period_start = scan_df.attrs.get("period_start", None)
-    period_end = scan_df.attrs.get("period_end", None)
+    title = "Sliding Process Scatter Compare"
+    period_start = sliding_df.attrs.get("period_start", None)
+    period_end = sliding_df.attrs.get("period_end", None)
     if period is not None:
         title = (
             f"{title} | {pd.Timestamp(period[0]).strftime('%Y-%m-%d %H:%M')} - "
@@ -1811,7 +1811,7 @@ def plot_scan_process_scatter_compare(
         safe_t0 = str(period_start or "t0").replace(":", "").replace("-", "").replace(" ", "_")
         safe_t1 = str(period_end or "t1").replace(":", "").replace("-", "").replace(" ", "_")
         filepath = outdir / (
-            f"scan_process_scatter_compare_{safe_processes}_{x}_vs_{y}_color_{color}_{safe_t0}_{safe_t1}.png"
+            f"sliding_process_scatter_compare_{safe_processes}_{x}_vs_{y}_color_{color}_{safe_t0}_{safe_t1}.png"
         )
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 

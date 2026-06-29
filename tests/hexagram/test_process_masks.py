@@ -1,7 +1,10 @@
 import matplotlib
 import pytest
 
-from mrrpropy.hexagram import PROCESS_SIGNATURES, plot_process_to_hexagram
+from mrrpropy.rain_process_classification.hexagram import (
+    PROCESS_SIGNATURES,
+    plot_process_to_hexagram,
+)
 
 matplotlib.use("Agg")
 

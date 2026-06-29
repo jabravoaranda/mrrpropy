@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 import xarray as xr
 
-from mrrpropy.processes import PROCESS_CODES, PROCESS_MARKERS, PROCESS_SIGNATURES, ProcessSignature
+from mrrpropy.rain_process_classification.rain_process_info import PROCESS_CODES, PROCESS_MARKERS, PROCESS_SIGNATURES, ProcessSignature
 
 FloatArray: TypeAlias = NDArray[np.float64]
 Float32Array: TypeAlias = NDArray[np.float32]

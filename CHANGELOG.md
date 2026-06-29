@@ -99,7 +99,7 @@ versioning for published package releases.
 ### Changed
 
 - `MRRProData` now delegates plotting, rain-process analysis, and RaProMPro
-  processing/load responsibilities into dedicated modules.
+  preprocessing/load responsibilities into dedicated modules.
 - The enforced `mypy` lane now covers the extracted typed subset of the package.
 
 ## [0.0.1]

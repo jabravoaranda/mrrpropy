@@ -9,7 +9,7 @@ The project provides:
 - utilities for microphysical process analysis and hexagram-based classification.
 
 The public API is intentionally concentrated around `mrrpropy.raw_class.MRRProData`.
-The lower-level `RaProMPro_*` modules are retained mainly for scientific reference and
+The lower-level `preprocessing/RaProMPro_*` modules are retained mainly for scientific reference and
 workflow-controlled optimization work.
 """
 

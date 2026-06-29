@@ -1,11 +1,11 @@
 import numpy as np
 import xarray as xr
 
-from mrrpropy.analysis.processes import (
+from mrrpropy.rain_process_classification.rain_process_algorithm import (
     classify_process_from_features,
     classify_rain_process,
 )
-from mrrpropy.analysis.process_features import (
+from mrrpropy.rain_process_classification.process_features import (
     build_process_features,
     get_microphysical_features,
 )
@@ -47,7 +47,7 @@ def test_get_microphysical_features_fixed_layer_simple_profile():
     assert str(features["micro_signature_str"].values[0]) == "+,+,+"
 
 
-def test_get_microphysical_features_scan_uses_z_center_as_layer_coord():
+def test_get_microphysical_features_sliding_uses_z_center_as_layer_coord():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -66,7 +66,7 @@ def test_get_microphysical_features_scan_uses_z_center_as_layer_coord():
 
     features = get_microphysical_features(
         ds,
-        mode="scan",
+        mode="sliding",
         z_top=z_top,
         z_bottom=z_bottom,
         z_center=z_center,
@@ -143,11 +143,11 @@ def test_build_process_features_fixed_layer_integration():
     assert pf["overlaps_bb"].dtype == bool
 
 
-def test_build_process_features_scan_integration():
+def test_build_process_features_sliding_integration():
     ds = _synthetic_full_ds()
     pf = build_process_features(
         ds,
-        mode="scan",
+        mode="sliding",
         window_thickness_m=200.0,
         window_step_m=100.0,
         bb_bottom_m=10.0,
@@ -208,11 +208,11 @@ def test_classify_process_from_features_fixed_layer_activation():
     assert float(classified["strength"].values[0]) == 1.0
 
 
-def test_classify_process_from_features_scan_activation():
+def test_classify_process_from_features_sliding_activation():
     ds = _synthetic_full_ds()
     pf = build_process_features(
         ds,
-        mode="scan",
+        mode="sliding",
         window_thickness_m=200.0,
         window_step_m=100.0,
         bb_bottom_m=10.0,
