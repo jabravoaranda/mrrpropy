@@ -230,7 +230,7 @@ def _save_layer_rain_analysis(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    analysis = mrr.rain_process_analyze(
+    analysis = mrr.layer_rain_classification(
         period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
         layer=layer,
         k=k,
@@ -389,7 +389,7 @@ def _save_column_event_sliding(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sliding_df = mrr.build_sliding_column_process_dataframe(
+    sliding_df = mrr.sliding_rain_classification(
         period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
         k=k,
         window_thickness_m=window_thickness_m,

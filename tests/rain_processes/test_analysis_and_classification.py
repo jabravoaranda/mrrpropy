@@ -94,13 +94,12 @@ def test_compute_layer_trend_uses_descending_rain_evolution():
     assert result["tau_LWC"].values[0] > 0.9
 
 
-def test_rain_process_analyze_uses_nonparametric_pipeline(
+def test_layer_rain_classification_uses_nonparametric_pipeline(
     raprompro_subset_10min_loaded_mrr,
 ):
-    analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="fixed_layer",
         z_bottom_m=1000.0,
         z_top_m=2000.0,
         ze_th=-5.0,
@@ -171,10 +170,9 @@ def test_rain_process_analyze_uses_nonparametric_pipeline(
 
 
 def test_build_process_dynamics_dataframe(raprompro_subset_10min_loaded_mrr):
-    analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="fixed_layer",
         z_bottom_m=1000.0,
         z_top_m=2000.0,
         min_points_trend=6,
@@ -213,10 +211,9 @@ def test_build_process_dynamics_dataframe(raprompro_subset_10min_loaded_mrr):
 
 
 def test_summarize_process_dynamics(raprompro_subset_10min_loaded_mrr):
-    analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="fixed_layer",
         z_bottom_m=1000.0,
         z_top_m=2000.0,
         min_points_trend=6,
@@ -240,18 +237,16 @@ def test_summarize_process_dynamics(raprompro_subset_10min_loaded_mrr):
     assert summary["n_samples"].sum() == len(classified["time"])
 
 
-def test_build_sliding_column_process_dataframe(raprompro_subset_10min_loaded_mrr):
-    sliding_df = (
-        raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
-            period=(
-                datetime(2025, 10, 29, 19, 23, 0),
-                datetime(2025, 10, 29, 19, 33, 0),
-            ),
-            k=11,
-            window_thickness_m=1000.0,
-            window_step_m=100.0,
-            min_tau_strength=0.10,
-        )
+def test_sliding_rain_classification(raprompro_subset_10min_loaded_mrr):
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+        period=(
+            datetime(2025, 10, 29, 19, 23, 0),
+            datetime(2025, 10, 29, 19, 33, 0),
+        ),
+        k=11,
+        window_thickness_m=1000.0,
+        window_step_m=100.0,
+        min_tau_strength=0.10,
     )
 
     assert isinstance(sliding_df, pd.DataFrame)
@@ -277,10 +272,10 @@ def test_build_sliding_column_process_dataframe(raprompro_subset_10min_loaded_mr
     assert sliding_df["window_id"].nunique() >= 1
 
 
-def test_public_rain_process_analyze_defaults_to_sliding(
+def test_public_sliding_rain_classification_returns_sliding_dataframe(
     raprompro_subset_10min_loaded_mrr,
 ):
-    sliding_df = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=1000.0,
@@ -297,7 +292,7 @@ def test_legacy_layer_argument_still_works_with_warning(
     raprompro_subset_10min_loaded_mrr,
 ):
     with pytest.warns(FutureWarning):
-        analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+        analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
             period=(
                 datetime(2025, 10, 29, 19, 23, 0),
                 datetime(2025, 10, 29, 19, 33, 0),

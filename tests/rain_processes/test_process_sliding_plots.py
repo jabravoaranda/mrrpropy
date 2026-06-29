@@ -20,10 +20,9 @@ MIN_TAU_STRENGTH = 0.5
 
 @pytest.fixture(scope="session")
 def analysis(raprompro_subset_10min_loaded_mrr):
-    return raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    return raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="sliding",
         window_thickness_m=WINDOW_THICKNESS_M,
         window_step_m=WINDOW_STEP_M,
         min_tau_strength=MIN_TAU_STRENGTH,
@@ -35,7 +34,7 @@ def analysis(raprompro_subset_10min_loaded_mrr):
 
 @pytest.fixture(scope="session")
 def classified(raprompro_subset_10min_loaded_mrr, analysis):
-    return raprompro_subset_10min_loaded_mrr.classify_rain_process(analysis=analysis)
+    return analysis
 
 
 def _sliding_artifact_dir(artifact_dir: Path) -> Path:
@@ -46,17 +45,15 @@ def _sliding_artifact_dir(artifact_dir: Path) -> Path:
 
 def test_plot_sliding_column_process(raprompro_subset_10min_loaded_mrr, artifact_dir):
     output_dir = _sliding_artifact_dir(artifact_dir)
-    sliding_df = (
-        raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
-            period=(
-                datetime(2025, 10, 29, 19, 23, 0),
-                datetime(2025, 10, 29, 19, 33, 0),
-            ),
-            k=11,
-            window_thickness_m=WINDOW_THICKNESS_M,
-            window_step_m=WINDOW_STEP_M,
-            min_tau_strength=MIN_TAU_STRENGTH,
-        )
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+        period=(
+            datetime(2025, 10, 29, 19, 23, 0),
+            datetime(2025, 10, 29, 19, 33, 0),
+        ),
+        k=11,
+        window_thickness_m=WINDOW_THICKNESS_M,
+        window_step_m=WINDOW_STEP_M,
+        min_tau_strength=MIN_TAU_STRENGTH,
     )
 
     fig, path = raprompro_subset_10min_loaded_mrr.plot_sliding_column_process(
@@ -79,17 +76,15 @@ def test_plot_sliding_column_process_selected_processes(
     raprompro_subset_10min_loaded_mrr, artifact_dir
 ):
     output_dir = _sliding_artifact_dir(artifact_dir)
-    sliding_df = (
-        raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
-            period=(
-                datetime(2025, 10, 29, 19, 23, 0),
-                datetime(2025, 10, 29, 19, 33, 0),
-            ),
-            k=11,
-            window_thickness_m=WINDOW_THICKNESS_M,
-            window_step_m=WINDOW_STEP_M,
-            min_tau_strength=MIN_TAU_STRENGTH,
-        )
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+        period=(
+            datetime(2025, 10, 29, 19, 23, 0),
+            datetime(2025, 10, 29, 19, 33, 0),
+        ),
+        k=11,
+        window_thickness_m=WINDOW_THICKNESS_M,
+        window_step_m=WINDOW_STEP_M,
+        min_tau_strength=MIN_TAU_STRENGTH,
     )
     all_expected = {
         label
@@ -143,17 +138,15 @@ def test_plot_sliding_column_process_hexagram_colors(
     raprompro_subset_10min_loaded_mrr, artifact_dir
 ):
     output_dir = _sliding_artifact_dir(artifact_dir)
-    sliding_df = (
-        raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
-            period=(
-                datetime(2025, 10, 29, 19, 23, 0),
-                datetime(2025, 10, 29, 19, 33, 0),
-            ),
-            k=11,
-            window_thickness_m=WINDOW_THICKNESS_M,
-            window_step_m=WINDOW_STEP_M,
-            min_tau_strength=MIN_TAU_STRENGTH,
-        )
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+        period=(
+            datetime(2025, 10, 29, 19, 23, 0),
+            datetime(2025, 10, 29, 19, 33, 0),
+        ),
+        k=11,
+        window_thickness_m=WINDOW_THICKNESS_M,
+        window_step_m=WINDOW_STEP_M,
+        min_tau_strength=MIN_TAU_STRENGTH,
     )
 
     fig, path = raprompro_subset_10min_loaded_mrr.plot_sliding_column_process(
@@ -186,17 +179,15 @@ def test_plot_sliding_process_scatter_compare(
     raprompro_subset_10min_loaded_mrr, artifact_dir
 ):
     output_dir = _sliding_artifact_dir(artifact_dir)
-    sliding_df = (
-        raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
-            period=(
-                datetime(2025, 10, 29, 19, 23, 0),
-                datetime(2025, 10, 29, 19, 33, 0),
-            ),
-            k=11,
-            window_thickness_m=WINDOW_THICKNESS_M,
-            window_step_m=WINDOW_STEP_M,
-            min_tau_strength=MIN_TAU_STRENGTH,
-        )
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+        period=(
+            datetime(2025, 10, 29, 19, 23, 0),
+            datetime(2025, 10, 29, 19, 33, 0),
+        ),
+        k=11,
+        window_thickness_m=WINDOW_THICKNESS_M,
+        window_step_m=WINDOW_STEP_M,
+        min_tau_strength=MIN_TAU_STRENGTH,
     )
     selected_processes = sorted(
         {

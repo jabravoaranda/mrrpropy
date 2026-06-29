@@ -27,10 +27,9 @@ class _SyntheticPlotSubject:
 
 @pytest.fixture(scope="session")
 def analysis(raprompro_subset_10min_loaded_mrr):
-    return raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    return raprompro_subset_10min_loaded_mrr.layer_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="fixed_layer",
         z_bottom_m=1000.0,
         z_top_m=2000.0,
         ze_th=-5.0,

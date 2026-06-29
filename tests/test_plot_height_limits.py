@@ -45,7 +45,7 @@ def test_process_height_plots_allow_user_y_limits(
     expected = (0.8, 2.4)
 
     fig, path = raprompro_subset_10min_loaded_mrr.plot_sliding_column_process(
-        sliding_df=raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
+        sliding_df=raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
             period=(
                 datetime(2025, 10, 29, 19, 23, 0),
                 datetime(2025, 10, 29, 19, 33, 0),

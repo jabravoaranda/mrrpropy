@@ -372,7 +372,7 @@ def compute_layer_trend(
     return out
 
 
-def rain_process_analyze(
+def layer_rain_classification(
     subject: SupportsRainAnalysis,
     *,
     period: tuple[datetime, datetime],
@@ -414,7 +414,7 @@ def rain_process_analyze(
         z_bottom_m=z_bottom_m,
         z_top_m=z_top_m,
         layer=layer,
-        caller="rain_process_analyze",
+        caller="layer_rain_classification",
     )
 
     t0, t1 = period
@@ -533,7 +533,7 @@ def classify_rain_process(
 
     if analysis is None or not isinstance(analysis, xr.Dataset):
         raise TypeError(
-            "analysis must be an xr.Dataset produced by rain_process_analyze."
+            "analysis must be an xr.Dataset produced by layer_rain_classification."
         )
     if "time" not in analysis.coords:
         raise KeyError("analysis must include the 'time' coordinate.")
@@ -1307,7 +1307,7 @@ def _detect_process_runs_from_sliding(
     ).reset_index(drop=True)
 
 
-def build_sliding_column_process_dataframe(
+def sliding_rain_classification(
     subject: SupportsRainAnalysis,
     *,
     period: tuple[datetime, datetime],
@@ -1380,7 +1380,7 @@ def build_sliding_column_process_dataframe(
 
     frames: list[pd.DataFrame] = []
     for window_id, (z_min_m, z_max_m) in enumerate(windows):
-        analysis = rain_process_analyze(
+        analysis = layer_rain_classification(
             subject,
             period=period,
             z_bottom_m=z_min_m,
@@ -1461,7 +1461,7 @@ def build_fused_column_process_dataframe(
     Exploratory Option B: fuse vertical sliding detections into consolidated layers.
 
     The input ``sliding_df`` is expected to be the dataframe returned by
-    :func:`build_sliding_column_process_dataframe`. For each time step, the
+    :func:`sliding_rain_classification`. For each time step, the
     function searches for *vertically adjacent* runs of the same process label,
     fuses each run into one vertical layer, recomputes the microphysical trends
     on the fused layer using ``subject.raprompro``, and reclassifies the fused
@@ -1560,7 +1560,7 @@ def build_fused_column_process_dataframe(
             f"sliding_df is missing column {requested!r}. Available columns: {list(df.columns)!r}"
         )
 
-    # `build_sliding_column_process_dataframe` uses z_bottom_m/z_top_m; keep the public
+    # `sliding_rain_classification` uses z_bottom_m/z_top_m; keep the public
     # signature generic, but accept the package-native names transparently.
     resolved_time_col = _resolve_column(sliding_df, time_col, ("time",))
     resolved_process_col = _resolve_column(sliding_df, process_col, ("proc_label",))

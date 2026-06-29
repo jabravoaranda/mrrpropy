@@ -138,7 +138,7 @@ Muestras con fuerza insuficiente o p-value no aceptado se etiquetan como `steady
 
 ### Ventanas deslizantes de columna y episodios
 
-- `build_sliding_column_process_dataframe()` recorre la columna con ventanas verticales deslizantes (`window_thickness_m`, `window_step_m`).
+- `sliding_rain_classification()` recorre la columna con ventanas verticales deslizantes (`window_thickness_m`, `window_step_m`).
 - En cada ventana ejecuta el mismo analisis de tendencias y clasificacion.
 - `detect_column_process_episodes()` detecta episodios persistentes por ventana cuando un proceso aparece en perfiles consecutivos.
 - `build_fused_column_process_dataframe()` fusiona detecciones verticalmente adyacentes del mismo proceso y recomputa tendencias en la capa fusionada.
@@ -147,7 +147,7 @@ Muestras con fuerza insuficiente o p-value no aceptado se etiquetan como `steady
 
 No existe un paquete fuente llamado literalmente `mrrpropy/rain_processes`; el nombre aparece principalmente en tests. Los modulos funcionales equivalentes son:
 
-- `mrrpropy/rain_process_classification/rain_process_algorithm.py`: nucleo de `rain_process_analyze`, `classify_rain_process`, ventanas deslizantes de columna, episodios y dataframes.
+- `mrrpropy/rain_process_classification/rain_process_algorithm.py`: nucleo de `layer_rain_classification`, `classify_rain_process`, ventanas deslizantes de columna, episodios y dataframes.
 - `mrrpropy/rain_process_classification/process_features.py`: extraccion de rasgos para clasificacion por fases.
 - `mrrpropy/rain_process_classification/hexagram.py`: RGB/hexagrama y mascaras teoricas por proceso.
 - `mrrpropy/rain_process_classification/rain_process_info.py`: firmas y metadatos de procesos.
@@ -257,7 +257,7 @@ flowchart TD
     G --> H["PIA correction: DBPIA, Ze, Za, Zea"]
     H --> I["Producto *_raprompro.nc"]
     I --> J["Plots: quicklook, spectra, DSD, profiles"]
-    I --> K["Layer or column rain_process_analyze()"]
+    I --> K["Layer layer_rain_classification() or column sliding_rain_classification()"]
     K --> L["Kendall tau + Theil-Sen trends"]
     L --> M["trend_score_Dm/Nw/LWC"]
     M --> N["RGB mapping and hexagram"]

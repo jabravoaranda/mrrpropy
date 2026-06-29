@@ -17,7 +17,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, List, Optional, Union
-import warnings
 
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
@@ -1159,14 +1158,11 @@ class MRRProData:
             min_points_trend=min_points_trend,
         )
 
-    def rain_process_analyze(
+    def layer_rain_classification(
         self,
         *,
         period: tuple[datetime, datetime],
         k: int,
-        selection_mode: str = "sliding",
-        window_thickness_m: float | None = None,
-        window_step_m: float | None | _UnsetType = _UNSET,
         z_bottom_m: float | None = None,
         z_top_m: float | None = None,
         layer: tuple[float, float] | None = None,
@@ -1174,20 +1170,9 @@ class MRRProData:
         tau_zero_tol: float = 0.05,
         min_points_trend: int | None = None,
         vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-        min_tau_strength: float | None | _UnsetType = _UNSET,
-        max_tau_pvalue: float | None = None,
-    ) -> xr.Dataset | pd.DataFrame:
+    ) -> xr.Dataset:
         """
-        Analyse rain-process evolution with a sliding-first public workflow.
-
-        ``selection_mode="sliding"`` is the default public interface and returns a
-        dataframe built from sliding windows defined by ``window_thickness_m``
-        and ``window_step_m``.
-
-        ``selection_mode="fixed_layer"`` keeps the explicit-layer workflow for
-        advanced use and returns the fixed-layer analysis dataset. In that mode,
-        use ``z_bottom_m`` and ``z_top_m`` to define the layer. Legacy
-        ``layer=(z_bottom_m, z_top_m)`` remains supported with a warning.
+        Analyse rain-process evolution in one fixed layer.
 
         The workflow is:
 
@@ -1199,71 +1184,12 @@ class MRRProData:
 
         Returns
         -------
-        xr.Dataset | pd.DataFrame
-            Sliding mode returns the sliding-column dataframe. Fixed-layer mode
-            returns the analysis dataset containing the trend diagnostics, RGB
-            channels, elapsed minutes and the hexagram coordinates used
-            downstream for plotting and classification.
-
-        Notes
-        -----
-        In sliding mode, window geometry and the tau-strength threshold default to
-        :attr:`micro_cfg` unless overridden by explicit arguments.
-
-        ``window_step_m=None`` means "raw resolution": use the native range grid
-        spacing (median of the range-coordinate differences).
+        xr.Dataset
+            Analysis dataset containing the trend diagnostics, RGB channels,
+            elapsed minutes and the hexagram coordinates used downstream for
+            plotting and classification.
         """
-        mode = str(selection_mode).strip().lower()
-        if mode not in {"sliding", "fixed_layer"}:
-            raise ValueError(
-                "selection_mode must be either 'sliding' or 'fixed_layer'."
-            )
-
-        has_fixed_layer_args = (
-            layer is not None or z_bottom_m is not None or z_top_m is not None
-        )
-        if mode == "sliding" and has_fixed_layer_args:
-            warnings.warn(
-                "Fixed-layer arguments were provided to rain_process_analyze(). "
-                "Running in selection_mode='fixed_layer'. For the default "
-                "public workflow, prefer sliding mode with `window_thickness_m` "
-                "and `window_step_m`.",
-                FutureWarning,
-                stacklevel=2,
-            )
-            mode = "fixed_layer"
-
-        if mode == "sliding":
-            thickness_m = (
-                float(window_thickness_m)
-                if window_thickness_m is not None
-                else float(self.micro_cfg.window_thickness_m)
-            )
-            step_m = (
-                window_step_m
-                if window_step_m is not _UNSET
-                else self.micro_cfg.window_step_m
-            )
-            tau_strength = (
-                min_tau_strength
-                if min_tau_strength is not _UNSET
-                else self.micro_cfg.min_tau_strength
-            )
-            return process_analysis.build_sliding_column_process_dataframe(
-                self,
-                period=period,
-                k=k,
-                window_thickness_m=thickness_m,
-                window_step_m=step_m,
-                min_tau_strength=tau_strength,
-                ze_th=ze_th,
-                tau_zero_tol=tau_zero_tol,
-                min_points_trend=min_points_trend,
-                vars_trend=vars_trend,
-                max_tau_pvalue=max_tau_pvalue,
-            )
-
-        return process_analysis.rain_process_analyze(
+        return process_analysis.layer_rain_classification(
             self,
             period=period,
             z_bottom_m=z_bottom_m,
@@ -1287,7 +1213,7 @@ class MRRProData:
     ) -> tuple[Figure, Path | None]:
         """
         SOLO plotting: dibuja el hexagrama base (RGB) y superpone la trayectoria temporal (puntos)
-        usando el resultado precomputado `analysis` (salida de rain_process_analyze).
+        usando el resultado precomputado `analysis` (salida de layer_rain_classification).
 
         Requiere en `analysis`:
         - hex_x, hex_y (coords en rejilla del hexagrama)
@@ -1298,7 +1224,7 @@ class MRRProData:
         Parameters
         ----------
         analysis : xr.Dataset
-            Resultado de rain_process_analyze(...)
+            Resultado de layer_rain_classification(...)
         k : int
             Resolución del hexagrama (debe coincidir con la usada en el análisis para que la LUT cuadre).
         use_snapped_colors : bool
@@ -1328,7 +1254,7 @@ class MRRProData:
         Classify each time sample into a rain-process category.
 
         The method expects the RGB mapping created by
-        :meth:`rain_process_analyze`, with the convention ``R -> Dm``,
+        :meth:`layer_rain_classification`, with the convention ``R -> Dm``,
         ``G -> Nw`` and ``B -> LWC``. When canonical trend diagnostics are
         present, classification uses ``trend_sign_*`` and ``trend_strength_*``
         independently of the underlying trend method. RGB-centre classification
@@ -1510,7 +1436,7 @@ class MRRProData:
             variables=variables,
         )
 
-    def build_sliding_column_process_dataframe(
+    def sliding_rain_classification(
         self,
         *,
         period: tuple[datetime, datetime],
@@ -1550,7 +1476,7 @@ class MRRProData:
             if min_tau_strength is not _UNSET
             else self.micro_cfg.min_tau_strength
         )
-        return process_analysis.build_sliding_column_process_dataframe(
+        return process_analysis.sliding_rain_classification(
             self,
             period=period,
             k=k,
@@ -1637,7 +1563,7 @@ class MRRProData:
         Plot a time-height curtain of process labels from a whole-sliding column.
 
         The input is the dataframe returned by
-        :meth:`build_sliding_column_process_dataframe`.
+        :meth:`sliding_rain_classification`.
         """
         return process_plotting.plot_sliding_column_process(
             self,

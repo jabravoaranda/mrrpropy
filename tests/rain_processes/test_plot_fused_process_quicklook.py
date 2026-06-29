@@ -32,7 +32,7 @@ QUICKLOOK_PROCESSES = [
 
 @pytest.fixture(scope="session")
 def sliding_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
-    return raprompro_subset_10min_loaded_mrr.build_sliding_column_process_dataframe(
+    return raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=WINDOW_THICKNESS_M,

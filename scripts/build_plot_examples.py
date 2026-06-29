@@ -64,10 +64,9 @@ class PlotContext:
     @property
     def fixed_analysis(self):
         if self._analysis_fixed is None:
-            self._analysis_fixed = self.mrr.rain_process_analyze(
+            self._analysis_fixed = self.mrr.layer_rain_classification(
                 period=PERIOD,
                 k=11,
-                selection_mode="fixed_layer",
                 z_bottom_m=LAYER[0],
                 z_top_m=LAYER[1],
                 ze_th=-5.0,
@@ -87,7 +86,7 @@ class PlotContext:
     @property
     def sliding_df(self) -> pd.DataFrame:
         if self._sliding_df is None:
-            self._sliding_df = self.mrr.build_sliding_column_process_dataframe(
+            self._sliding_df = self.mrr.sliding_rain_classification(
                 period=PERIOD,
                 k=11,
                 window_thickness_m=500.0,

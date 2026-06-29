@@ -694,7 +694,7 @@ def plot_rain_process_in_layer_hexagram(
     alpha = kwargs.get("alpha", pcfg.alpha_points)
 
     if analysis is None or not isinstance(analysis, xr.Dataset):
-        raise TypeError("analysis debe ser un xr.Dataset (salida de rain_process_analyze).")
+        raise TypeError("analysis debe ser un xr.Dataset (salida de layer_rain_classification).")
 
     required = ("hex_x", "hex_y", "minutes", "R", "G", "B")
     missing = [v for v in required if v not in analysis]
