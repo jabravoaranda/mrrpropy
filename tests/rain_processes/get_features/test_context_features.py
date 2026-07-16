@@ -33,6 +33,8 @@ def test_get_context_fixed_layer_simple():
     assert float(features["RR_mean"].values[0]) == 2.0
     assert bool(features["overlaps_bb"].values[0]) is True
     assert float(features["dist_bb_peak"].values[0]) == 0.0
+    assert float(features["dist_bb_bottom"].values[0]) == 50.0
+    assert float(features["dist_bb_top"].values[0]) == -50.0
 
 
 def test_get_context_sliding_uses_z_center_as_layer_coord():

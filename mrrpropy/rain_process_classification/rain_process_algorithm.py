@@ -995,6 +995,19 @@ def build_process_dynamics_dataframe(
     df["layer_top_range_m"] = float(top_level["range"].values)
     df["layer_bottom_range_m"] = float(bottom_level["range"].values)
 
+    velocity_name = next(
+        (name for name in ("V", "W", "VEL") if name in ds_event),
+        None,
+    )
+    if velocity_name is not None:
+        velocity_top = top_level[velocity_name].sel(time=base["time"]).values.astype(float)
+        velocity_bottom = bottom_level[velocity_name].sel(time=base["time"]).values.astype(float)
+        velocity_mean = layer_mean[velocity_name].sel(time=base["time"]).values.astype(float)
+        df["v_mean_top"] = velocity_top
+        df["v_mean_bottom"] = velocity_bottom
+        df["v_mean_layer_mean"] = velocity_mean
+        df["delta_v_mean"] = velocity_bottom - velocity_top
+
     for passthrough_name in (
         "R",
         "G",
@@ -1006,12 +1019,16 @@ def build_process_dynamics_dataframe(
         "sign_R",
         "sign_G",
         "sign_B",
+        "dist_bb_peak",
+        "dist_bb_bottom",
+        "dist_bb_top",
+        "overlaps_bb",
     ):
         if passthrough_name in base:
-            df[passthrough_name] = pd.to_numeric(
-                base[passthrough_name].values,
-                errors="coerce",
-            )
+            if passthrough_name == "overlaps_bb":
+                df[passthrough_name] = base[passthrough_name].values.astype(bool)
+            else:
+                df[passthrough_name] = pd.to_numeric(base[passthrough_name].values, errors="coerce")
 
     for sign_name in ("sign_R", "sign_G", "sign_B"):
         if sign_name in base:
@@ -1587,7 +1604,6 @@ def sliding_rain_classification(
         "selection_mode": "sliding",
     }
     sliding_ds = _sliding_dataframe_to_dataset(sliding_df)
-    breakpoint()
     return sliding_ds
 
 

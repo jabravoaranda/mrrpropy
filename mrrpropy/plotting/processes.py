@@ -1067,6 +1067,7 @@ def plot_sliding_column_process(
     contour_bins = kwargs.get("contour_bins", (180, 120))
     contour_sigma = float(kwargs.get("contour_sigma", 2.0))
     contour_background = bool(kwargs.get("contour_background", True))
+    target_ax = kwargs.get("ax")
 
     sliding_attrs = dict(getattr(sliding_df, "attrs", {}))
     default_event_min_intensity = sliding_attrs.get("min_tau_strength", 0.0)
@@ -1214,7 +1215,11 @@ def plot_sliding_column_process(
             event_intensity > event_min_intensity
         )
 
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    if target_ax is None:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    else:
+        ax = target_ax
+        fig = ax.figure
     rng = np.random.default_rng(gaussian_seed) if color_mode == "gaussian" else None
     excluded_labels = (
         set()
@@ -1574,7 +1579,7 @@ def plot_sliding_column_process(
     if y_limits is not None:
         ax.set_ylim(*y_limits)
 
-    if handles and color_mode != "event":
+    if handles and color_mode != "event" and bool(kwargs.get("show_legend", True)):
         ax.legend(
             handles=handles,
             loc=kwargs.get("legend_loc", "upper left"),
