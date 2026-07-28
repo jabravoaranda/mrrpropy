@@ -145,6 +145,9 @@ def plot_dsd_by_range(
     marker = kwargs.get("marker", pcfg.marker)
     markersize = kwargs.get("markersize", pcfg.markersize)
     legend_fontsize = kwargs.get("legend_fontsize", pcfg.legendfontsize)
+    title_fontsize = kwargs.get("title_fontsize")
+    label_fontsize = kwargs.get("label_fontsize")
+    tick_fontsize = kwargs.get("tick_fontsize")
 
     if subject.raprompro is None:
         raise RuntimeError("raprompro not loaded. Use load_raprompro().")
@@ -244,13 +247,16 @@ def plot_dsd_by_range(
     if not plotted_any:
         raise ValueError("No valid DSD curves found for the provided ranges/time.")
 
-    ax.set_xlabel(f"D [{diameter_units_out}]")
-    ax.set_ylabel(y_label)
+    ax.set_xlabel(f"D [{diameter_units_out}]", fontsize=label_fontsize)
+    ax.set_ylabel(y_label, fontsize=label_fontsize)
 
     time_text = str(np.datetime_as_string(t_sel, unit="s"))
-    ax.set_title(f"RaProMPro N(D) by range\n{time_text}")
+    title = kwargs.get("title", f"RaProMPro N(D) by range\n{time_text}")
+    ax.set_title(title, fontsize=title_fontsize)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.legend(ncol=ncol, loc="best", fontsize=legend_fontsize)
+    if tick_fontsize is not None:
+        ax.tick_params(axis="both", labelsize=tick_fontsize)
 
     if vmin is not None or vmax is not None:
         ax.set_ylim(vmin, vmax)

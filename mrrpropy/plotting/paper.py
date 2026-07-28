@@ -34,6 +34,8 @@ class SupportsPaperPlotting(_spectra.SupportsSpectralAccess, Protocol):
 
 PROCESS_COLORS: dict[str, str] = {
     "breakup": "#12af54",
+    "breakup_gain": "#13d7d7",
+    "breakup_loss": "#24ca24",
     "growth_depletion": "#1b9e77",
     "growth_depletion_gain": "#f808d0",
     "growth_depletion_loss": "#ff0000",
@@ -73,6 +75,25 @@ def _paper_grid(ax: Axes) -> None:
         spine.set_linewidth(0.8)
 
 
+def _set_data_xlim(ax: Axes, values: np.ndarray, *, zero_floor: bool = False) -> None:
+    """Tighten a profile x-axis around finite, height-filtered data."""
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return
+    lower = float(np.min(finite))
+    upper = float(np.max(finite))
+    span = upper - lower
+    padding = max(span * 0.08, np.finfo(float).eps)
+    lower -= padding
+    upper += padding
+    if zero_floor and lower >= 0.0:
+        lower = 0.0
+    if upper <= lower:
+        upper = lower + 1.0
+    ax.set_xlim(lower, upper)
+
+
 def _save(fig: Figure, path: Path | None, dpi: int) -> Path | None:
     if path is None:
         return None
@@ -105,6 +126,8 @@ def _process_order(labels: pd.Series | np.ndarray) -> list[str]:
         "growth_depletion",
         "growth_depletion_loss",
         "breakup",
+        "breakup_gain",
+        "breakup_loss",
         "evaporation",
         "steady_or_weak",
         "unknown",
@@ -244,6 +267,51 @@ def plot_quicklook_comparison(
     return fig, axes, out
 
 
+def plot_processed_quicklook(
+    subject: SupportsPaperPlotting,
+    *,
+    variable: str = "Ze",
+    vmin: float | None = None,
+    vmax: float | None = None,
+    cmap: str = "viridis",
+    figsize: tuple[float, float] = (6.0, 4.0),
+    y_limits: tuple[float, float] | None = None,
+    savefig: bool = False,
+    output_dir: Path | None = None,
+    filename: str = "processed_quicklook.png",
+    dpi: int | None = None,
+) -> tuple[Figure, Axes, Path | None]:
+    """Paper-ready quicklook of one processed field without a colorbar."""
+    if subject.raprompro is None or variable not in subject.raprompro:
+        raise KeyError(f"Variable '{variable}' not found in raprompro dataset.")
+
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    mesh = cast(Any, subject.raprompro[variable].plot)
+    mesh(
+        ax=ax,
+        x="time",
+        y="range",
+        add_colorbar=False,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+    )
+    ax.set_title("")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Range [m]")
+    if y_limits is not None:
+        ax.set_ylim(*y_limits)
+    _paper_grid(ax)
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=6))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    out = _save(
+        fig,
+        (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+        dpi or subject.plot_cfg.dpi,
+    ) if savefig else None
+    return fig, ax, out
+
+
 def plot_microphysical_properties_triple(
     subject: SupportsPaperPlotting,
     *,
@@ -269,15 +337,25 @@ def plot_microphysical_properties_triple(
     heights_km = profile["range"].values.astype(float) / 1000.0
     fig, axes = plt.subplots(ncols=3, figsize=figsize, sharey=True, constrained_layout=True)
     colors = kwargs.get("colors", ("#0072B2", "#009E73", "#D55E00"))
+    x_limits = kwargs.get("x_limits")
     for ax, variable, color in zip(axes, variables, colors):
+        values = np.asarray(profile[variable].values, dtype=float)
+        visible = np.isfinite(heights_km)
+        if y_limits is not None:
+            visible &= (heights_km >= float(y_limits[0])) & (heights_km <= float(y_limits[1]))
         ax.plot(
-            profile[variable].values.astype(float),
+            values,
             heights_km,
             color=color,
             linewidth=float(kwargs.get("linewidth", 1.5)),
             marker=kwargs.get("marker", "o"),
             markersize=float(kwargs.get("markersize", 2.8)),
         )
+        if x_limits is not None:
+            limits = x_limits[variables.index(variable)]
+            ax.set_xlim(*limits)
+        else:
+            _set_data_xlim(ax, values[visible], zero_floor=variable == "LWC")
         ax.set_xlabel(VARIABLE_LABELS.get(variable, variable))
         ax.set_title("")
         _paper_grid(ax)
@@ -301,6 +379,7 @@ def plot_single_column_events(
     target_datetime: datetime | np.datetime64 | str,
     range_col: str = "range",
     figsize: tuple[float, float] = (2.4, 4.0),
+    y_limits: tuple[float, float] | None = None,
     savefig: bool = False,
     output_dir: Path | None = None,
     filename: str = "single_column_events.png",
@@ -336,6 +415,8 @@ def plot_single_column_events(
     ax.set_xlim(0.7, 1.3)
     ax.set_xticks([])
     ax.set_ylabel("Height [km]")
+    if y_limits is not None:
+        ax.set_ylim(*y_limits)
     ax.set_title("")
     _paper_grid(ax)
     ax.legend(loc="best", fontsize=7, frameon=True)
@@ -366,6 +447,9 @@ def plot_microphysical_tau_triple(
     column = df[df["time"] == nearest].copy()
     column["range"] = pd.to_numeric(column["range"], errors="coerce")
     column = column[np.isfinite(column["range"])].sort_values("range")
+    if y_limits is not None:
+        lower_m, upper_m = (float(value) * 1000.0 for value in y_limits)
+        column = column[column["range"].between(lower_m, upper_m)]
     if column.empty:
         raise ValueError("No finite column data available at the selected time.")
 
@@ -373,10 +457,21 @@ def plot_microphysical_tau_triple(
     cmap = plt.get_cmap("coolwarm")
     norm = plt.Normalize(-1.0, 1.0)
     for ax, variable in zip(axes, variables):
-        value_col = f"{variable}_top"
+        value_col = next(
+            (
+                candidate
+                for candidate in (
+                    variable,
+                    f"{variable}_layer_mean",
+                    f"{variable}_top",
+                )
+                if candidate in column
+            ),
+            None,
+        )
         score_col = f"{score_prefix}_{variable}"
-        if value_col not in column or score_col not in column:
-            raise KeyError(f"Missing '{value_col}' or '{score_col}' for tau MPP plot.")
+        if value_col is None or score_col not in column:
+            raise KeyError(f"Missing data for '{variable}' or '{score_col}' for tau MPP plot.")
         values = pd.to_numeric(column[value_col], errors="coerce").to_numpy(float)
         scores = pd.to_numeric(column[score_col], errors="coerce").to_numpy(float)
         height = column["range"].to_numpy(float) / 1000.0
@@ -386,6 +481,7 @@ def plot_microphysical_tau_triple(
             values[valid], height[valid], c=np.clip(scores[valid], -1.0, 1.0),
             cmap=cmap, norm=norm, s=30, edgecolors="none",
         )
+        _set_data_xlim(ax, values[valid], zero_floor=variable == "LWC")
         ax.set_xlabel(VARIABLE_LABELS.get(variable, variable))
         _paper_grid(ax)
     axes[0].set_ylabel("Height [km]")
@@ -795,6 +891,7 @@ def plot_process_kde_2x2(
     figsize: tuple[float, float] = (8.0, 6.0),
     clip_quantiles: tuple[float, float] = (0.005, 0.995),
     domain_sigma: float | None = 3.0,
+    variable_limits: dict[str, tuple[float | None, float | None]] | None = None,
     savefig: bool = False,
     output_dir: Path | None = None,
     filename: str = "process_kde_2x2.png",
@@ -828,6 +925,12 @@ def plot_process_kde_2x2(
             sigma=domain_sigma,
             fallback_quantiles=clip_quantiles,
         )
+        if variable_limits and variable in variable_limits:
+            explicit_lower, explicit_upper = variable_limits[variable]
+            if explicit_lower is not None:
+                lower = float(explicit_lower)
+            if explicit_upper is not None:
+                upper = float(explicit_upper)
         for process, color in colors.items():
             values = plot_df.loc[plot_df[process_col] == process, column]
             if values.nunique(dropna=True) < 2:
@@ -849,7 +952,20 @@ def plot_process_kde_2x2(
         ax.set_title("")
         _paper_grid(ax)
 
-    fig.tight_layout()
+    handles = [
+        Line2D([0], [0], color=color, linewidth=1.5, label=PROCESS_CODES.get(label, label))
+        for label, color in colors.items()
+    ]
+    if handles:
+        fig.legend(
+            handles=handles,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 0.01),
+            ncol=min(5, len(handles)),
+            fontsize=7,
+            frameon=False,
+        )
+    fig.tight_layout(rect=(0.0, 0.12, 1.0, 1.0))
 
     out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
     return fig, axes, out

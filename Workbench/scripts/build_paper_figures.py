@@ -24,6 +24,7 @@ from mrrpropy.plotting.paper import (
     plot_process_distance_velocity_kdes,
     plot_process_kde_2x2,
     plot_quicklook_comparison,
+    plot_processed_quicklook,
     plot_quicklook_cps_hex,
     plot_single_column_events,
     plot_sliding_column_process_paper,
@@ -31,6 +32,7 @@ from mrrpropy.plotting.paper import (
 )
 
 matplotlib.use("Agg")
+# matplotlib.rcParams['font.family'] = 'serif' # I don't know if I want this.
 
 
 DEFAULT_SCAN_GLOB = (
@@ -68,6 +70,7 @@ def _load_or_process_product(
     force: bool,
     save_spe_3d: bool,
     save_dsd_3d: bool,
+    require_dsd_3d: bool = False,
 ) -> tuple[MRRProData, Path]:
     product_path = _processed_product_path(raw_path, raw_dir, product_dir)
     product_path.parent.mkdir(parents=True, exist_ok=True)
@@ -77,12 +80,15 @@ def _load_or_process_product(
         # The paper workflow performs many nearest time/range selections.  An
         # eager load avoids rebuilding the same Dask graph for every sample.
         mrr.load_raprompro(product_path, chunks=None)
+        if not require_dsd_3d or (mrr.raprompro is not None and "dsd_3D" in mrr.raprompro):
+            return mrr, product_path
+        print(f"[warn] cached product lacks dsd_3D; graph 10 will be skipped: {product_path}")
         return mrr, product_path
     print(f"[product] processing raw file: {raw_path}")
     mrr.process_raprompro(
         save=True,
         save_spe_3d=save_spe_3d,
-        save_dsd_3d=save_dsd_3d,
+        save_dsd_3d=save_dsd_3d or require_dsd_3d,
         output_dir=product_path.parent,
         filename=product_path.name,
     )
@@ -265,63 +271,86 @@ def _target_time(frame: pd.DataFrame, offset_minutes: float) -> pd.Timestamp:
     return min(max(candidate, start), end)
 
 
-def _bright_band_y_limits(
-    subject: MRRProData | pd.DataFrame | xr.Dataset,
+def _maximum_bright_band_m(
+    subject: MRRProData | xr.Dataset,
     *,
-    target_datetime: pd.Timestamp | np.datetime64 | str,
-    range_limits: tuple[float, float] | None,
-    pad_m: float = 250.0,
-) -> tuple[float, float] | None:
-    if range_limits is None:
-        return None
-
-    lower_m = float(range_limits[0])
-
-    if isinstance(subject, pd.DataFrame):
-        frame = subject.copy()
-        if "time" not in frame.columns:
-            return None
-        frame["time"] = pd.to_datetime(frame["time"])
-        target = pd.Timestamp(target_datetime)
-        nearest = frame.loc[(frame["time"] - target).abs().idxmin(), "time"]
-        column = frame[frame["time"] == nearest]
-        if column.empty:
-            return None
-        if "bb_distance_m" in column.columns:
-            bb_values = pd.to_numeric(column["bb_distance_m"], errors="coerce")
-            if bb_values.notna().any():
-                upper_m = float(np.nanmin(bb_values.to_numpy(dtype=float))) - pad_m
-                return (lower_m / 1000.0, upper_m / 1000.0)
-        if "range" in column.columns:
-            range_vals = pd.to_numeric(column["range"], errors="coerce")
-            if range_vals.notna().any():
-                upper_m = float(np.nanmin(range_vals.to_numpy(dtype=float))) - pad_m
-                return (lower_m / 1000.0, upper_m / 1000.0)
-        return None
-
-    if isinstance(subject, xr.Dataset):
-        ds = subject
-    else:
-        ds = getattr(subject, "raprompro", None)
+    boundary: str = "top",
+) -> float | None:
+    """Return the highest finite value for the selected bright-band boundary."""
+    ds = subject if isinstance(subject, xr.Dataset) else getattr(subject, "raprompro", None)
     if ds is None:
         return None
-
-    bb_var = next((name for name in ("BB_peak", "BB_peak_m", "bb_peak_m") if name in ds), None)
-    if bb_var is None:
-        return None
-    try:
-        selected = ds[bb_var].sel(
-            time=np.datetime64(pd.Timestamp(target_datetime).to_datetime64()),
-            method="nearest",
-        )
-        values = np.asarray(selected.values, dtype=float).reshape(-1)
+    if boundary == "peak":
+        names = ("BB_peak", "BB_peak_m", "bb_peak_m")
+    elif boundary == "bottom":
+        names = ("BB_bottom", "BB_bottom_m", "bb_bottom_m")
+    else:
+        names = ("BB_top", "BB_top_m", "bb_top_m")
+    for name in names:
+        if name not in ds:
+            continue
+        values = np.asarray(ds[name].values, dtype=float)
         finite = values[np.isfinite(values)]
-        if finite.size == 0:
+        if finite.size:
+            return float(np.nanmax(finite))
+    return None
+
+
+def _bright_band_y_limits(
+    subject: MRRProData | xr.Dataset,
+    *,
+    fallback_limits_m: tuple[float, float] | None,
+    upper_offset_m: float,
+    boundary: str = "top",
+) -> tuple[float, float] | None:
+    """Build limits relative to the maximum bright-band height."""
+    maximum_bb_m = _maximum_bright_band_m(subject, boundary=boundary)
+    if maximum_bb_m is None:
+        if fallback_limits_m is None:
             return None
-        upper_m = float(np.nanmin(finite)) - pad_m
-    except Exception:
-        return None
+        return (fallback_limits_m[0] / 1000.0, fallback_limits_m[1] / 1000.0)
+    lower_m = 700.0
+    upper_m = maximum_bb_m + upper_offset_m
     return (lower_m / 1000.0, upper_m / 1000.0)
+
+
+def _format_range_tag(ranges_m: list[float]) -> str:
+    values = [f"{value:g}m" for value in ranges_m]
+    if len(values) <= 3:
+        return "_".join(values)
+    return f"{values[0]}_to_{values[-1]}_{len(values)}ranges"
+
+
+def _plot_dsd_by_ranges(
+    mrr: MRRProData,
+    *,
+    target_datetime: pd.Timestamp,
+    ranges_m: list[float],
+    output_dir: Path,
+    stem: str,
+    dpi: int,
+) -> Path | None:
+    fig, path = mrr.plot_DSD_by_range(
+        target_datetime=target_datetime,
+        ranges=ranges_m,
+        figsize=(7.8, 5.4),
+        ncol=min(3, len(ranges_m)),
+        savefig=True,
+        output_dir=output_dir,
+        dpi=dpi,
+        markersize=4.5,
+        legend_fontsize=9,
+        title=f"DSD by range\n{target_datetime:%Y-%m-%d %H:%M:%S}",
+        title_fontsize=12,
+        label_fontsize=11,
+        tick_fontsize=10,
+    )
+    plt.close(fig)
+    if path is None:
+        return None
+    final_path = output_dir / f"{stem}_10_dsd_by_range_{_format_range_tag(ranges_m)}.png"
+    path.replace(final_path)
+    return final_path
 
 
 def _make_per_file_figures(
@@ -334,6 +363,7 @@ def _make_per_file_figures(
     spectrum_var: str,
     range_limits: tuple[float, float] | None,
     short_range_limits: tuple[float, float],
+    dsd_ranges_m: list[float] | None,
     processes: list[str] | None,
     dpi: int,
 ) -> list[Path]:
@@ -342,17 +372,28 @@ def _make_per_file_figures(
     target = _target_time(frame, target_time_offset_minutes)
     stem = raw_path.stem
     written: list[Path] = []
+    full_y_limits_m = _bright_band_y_limits(
+        mrr,
+        fallback_limits_m=range_limits,
+        upper_offset_m=100.0,
+    )
+    below_bb_y_limits_km = _bright_band_y_limits(
+        mrr,
+        fallback_limits_m=range_limits,
+        upper_offset_m=-500.0,
+        boundary="peak",
+    )
 
     figure_calls = [
         ("01 quicklook raw/processed", lambda: plot_quicklook_comparison(
             mrr, variable="Ze", vmin=-10, vmax=40, figsize=(12.0, 5.2),
-            y_limits=range_limits,
+            y_limits=(full_y_limits_m[0] * 1000.0, full_y_limits_m[1] * 1000.0) if full_y_limits_m else None,
             savefig=True, output_dir=output_dir,
             filename=f"{stem}_01_quicklook_raw_processed.png", dpi=dpi,
         )[-1]),
         ("02 MPP triple", lambda: plot_microphysical_properties_triple(
             mrr, target_datetime=target, figsize=(12.0, 6.0),
-            y_limits=_bright_band_y_limits(mrr, target_datetime=target, range_limits=range_limits),
+            y_limits=below_bb_y_limits_km,
             savefig=True, output_dir=output_dir,
             filename=f"{stem}_02_mpp_triple.png", dpi=dpi,
         )[-1]),
@@ -363,36 +404,61 @@ def _make_per_file_figures(
         )[-1]),
         ("04 single column events", lambda: plot_single_column_events(
             frame, target_datetime=target, figsize=(4.0, 7.0),
+            y_limits=below_bb_y_limits_km,
             savefig=True, output_dir=output_dir,
             filename=f"{stem}_04_single_column_events.png", dpi=dpi,
         )[-1]),
         ("05 tau/Thiel MPP triple", lambda: plot_microphysical_tau_triple(
             frame, target_datetime=target, variables=("Dm", "Nw", "LWC"),
             figsize=(12.0, 6.0),
-            y_limits=_bright_band_y_limits(mrr, target_datetime=target, range_limits=range_limits),
+            y_limits=below_bb_y_limits_km,
             savefig=True, output_dir=output_dir,
             filename=f"{stem}_05_mpp_tau_triple.png", dpi=dpi,
         )[-1]),
         ("06 canonical sliding column process", lambda: plot_sliding_column_process_paper(
             mrr, frame, processes=processes, figsize=(14.0, 8.0),
-            y_limits=(range_limits[0] / 1000.0, range_limits[1] / 1000.0) if range_limits else None,
+            y_limits=(full_y_limits_m[0], full_y_limits_m[1]) if full_y_limits_m else None,
             savefig=True, output_dir=output_dir,
             filename=f"{stem}_06_column_process_scan.png", dpi=dpi,
         )[-1]),
         ("07 column process scan hex", lambda: plot_column_process_scan(
             frame, color_mode="hex", processes=processes,
-            figsize=(14.0, 8.0), range_limits=range_limits, show_legend=False,
+            figsize=(14.0, 8.0),
+            range_limits=(full_y_limits_m[0] * 1000.0, full_y_limits_m[1] * 1000.0) if full_y_limits_m else None,
+            show_legend=False,
             marker_size=52.0, label_fs=13.0, tick_fs=10.0,
             savefig=True, output_dir=output_dir,
             filename=f"{stem}_07_column_process_scan_hex.png", dpi=dpi,
         )[-1]),
         ("08 quicklook CPS hex triptych", lambda: plot_quicklook_cps_hex(
-            mrr, frame, processes=processes, range_limits=range_limits,
+            mrr, frame, processes=processes,
+            range_limits=(full_y_limits_m[0] * 1000.0, full_y_limits_m[1] * 1000.0) if full_y_limits_m else None,
             figsize=(18.0, 6.0), savefig=True,
             output_dir=output_dir,
             filename=f"{stem}_08_quicklook_cps_hex.png", dpi=dpi,
         )[-1]),
+        ("09 processed quicklook", lambda: plot_processed_quicklook(
+            mrr, variable="Ze", vmin=-10, vmax=40, figsize=(6.0, 5.2),
+            y_limits=(full_y_limits_m[0] * 1000.0, full_y_limits_m[1] * 1000.0)
+            if full_y_limits_m else None,
+            savefig=True, output_dir=output_dir,
+            filename=f"{stem}_09_quicklook_processed.png", dpi=dpi,
+        )[-1]),
     ]
+    if dsd_ranges_m:
+        if mrr.raprompro is not None and "dsd_3D" in mrr.raprompro:
+            figure_calls.append(
+                ("10 DSD by range", lambda: _plot_dsd_by_ranges(
+                    mrr,
+                    target_datetime=target,
+                    ranges_m=dsd_ranges_m,
+                    output_dir=output_dir,
+                    stem=stem,
+                    dpi=dpi,
+                ))
+            )
+        else:
+            print("[warn] skipped 10 DSD by range: raprompro missing required variable 'dsd_3D'.")
     for figure_name, make_figure in figure_calls:
         print(f"[figure] {stem}: {figure_name}")
         try:
@@ -441,6 +507,81 @@ def _read_scan_csvs(patterns: list[str]) -> pd.DataFrame:
     if not frames:
         raise FileNotFoundError("No scan CSV files were found.")
     return pd.concat(frames, ignore_index=True)
+
+
+def _aggregate_existing_product_csvs(
+    product_dir: Path,
+    combined_csv: Path,
+    *,
+    sample_per_process: int,
+    chunksize: int,
+) -> pd.DataFrame:
+    """Stream completed sliding scans into one CSV and retain a KDE sample.
+
+    The product CSVs are the durable checkpoints.  Re-running this operation
+    only rescans those checkpoints, so an interrupted aggregation never
+    requires the raw-file processing to start over.
+    """
+    if sample_per_process < 1:
+        raise ValueError("sample_per_process must be at least 1")
+    if chunksize < 1:
+        raise ValueError("chunksize must be at least 1")
+    paths = sorted(product_dir.rglob("*_raprompro_sliding.csv"))
+    if not paths:
+        raise FileNotFoundError(f"No *_raprompro_sliding.csv files found under {product_dir}.")
+
+    combined_csv.parent.mkdir(parents=True, exist_ok=True)
+    if combined_csv.exists():
+        combined_csv.unlink()
+
+    sample_by_process: dict[str, pd.DataFrame] = {}
+    wrote_header = False
+    total_rows = 0
+    useful_columns = (
+        "time", "range", "proc_label", "proc_strength",
+        "v_mean_top", "v_mean_bottom", "v_mean_layer_mean", "delta_v_mean",
+        "Dm_top", "Dm_layer_mean", "Nw_top", "Nw_layer_mean",
+        "LWC_top", "LWC_layer_mean", "Dw", "N", "LWC", "V",
+        "bb_distance_m", "BB_distance_m", "dist_bb_peak", "dist_bb_bottom",
+        "range_bottom_m", "range_top_m", "source_raw_file", "source_product_file",
+    )
+    for index, path in enumerate(paths, start=1):
+        print(f"[aggregate] {index}/{len(paths)} {path}")
+        try:
+            columns = pd.read_csv(path, nrows=0).columns.tolist()
+            usecols = [column for column in useful_columns if column in columns]
+            if "proc_label" not in usecols:
+                print(f"[warn] {path}: no proc_label column; skipped")
+                continue
+            for chunk in pd.read_csv(path, usecols=usecols, chunksize=chunksize):
+                if chunk.empty:
+                    continue
+                chunk = _add_convenience_columns(chunk)
+                chunk["source_file"] = str(path)
+                chunk.to_csv(combined_csv, mode="a", header=not wrote_header, index=False)
+                wrote_header = True
+                total_rows += len(chunk)
+
+                for label, group in chunk.groupby("proc_label", dropna=False):
+                    key = str(label)
+                    existing = sample_by_process.get(key)
+                    candidate = group.copy() if existing is None else pd.concat(
+                        [existing, group], ignore_index=True
+                    )
+                    if len(candidate) > sample_per_process:
+                        candidate = candidate.sample(
+                            n=sample_per_process,
+                            random_state=20260724,
+                        )
+                    sample_by_process[key] = candidate
+        except (OSError, pd.errors.ParserError, ValueError) as exc:
+            print(f"[warn] {path}: skipped ({exc})")
+
+    if not wrote_header:
+        raise ValueError(f"No readable rows were found in {product_dir}.")
+    sample = pd.concat(sample_by_process.values(), ignore_index=True)
+    print(f"[aggregate] complete: {total_rows} rows; retained {len(sample)} rows for KDE/xarray")
+    return sample
 
 
 def _add_convenience_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -493,7 +634,7 @@ def _require_any_column(frame: pd.DataFrame, candidates: tuple[str, ...], label:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Build the ten paper-ready figures from a folder of raw files."
+        description="Build the paper-ready figures from a folder of raw files."
     )
     parser.add_argument(
         "--scan-glob",
@@ -521,6 +662,24 @@ def main() -> None:
         default=PRODUCT_DIR,
         help="Cache directory for processed *_raprompro.nc products.",
     )
+    parser.add_argument(
+        "--aggregate-products",
+        action="store_true",
+        default=AGGREGATE_EXISTING_PRODUCTS,
+        help="Aggregate completed *_raprompro_sliding.csv checkpoints under --product-dir.",
+    )
+    parser.add_argument(
+        "--aggregate-sample-per-process",
+        type=int,
+        default=AGGREGATE_SAMPLE_PER_PROCESS,
+        help="Maximum rows retained per process for KDEs and the combined xarray.",
+    )
+    parser.add_argument(
+        "--aggregate-chunksize",
+        type=int,
+        default=AGGREGATE_CHUNKSIZE,
+        help="Rows read per product CSV chunk during aggregation.",
+    )
     parser.add_argument("--force-process", action="store_true", default=FORCE_PROCESS, help="Reprocess raw files even when cached products exist.")
     parser.add_argument(
         "--reset-cache",
@@ -537,6 +696,19 @@ def main() -> None:
     parser.add_argument("--min-points-trend", type=int, default=MIN_POINTS_TREND, help="Minimum points per trend estimate.")
     parser.add_argument("--save-spe-3d", action="store_true", default=SAVE_SPE_3D, help="Store spe_3D in cached processed products.")
     parser.add_argument("--save-dsd-3d", action="store_true", default=SAVE_DSD_3D, help="Store dsd_3D in cached processed products.")
+    parser.add_argument(
+        "--dsd-ranges-m",
+        nargs="+",
+        type=float,
+        default=DSD_RANGES_M,
+        help="Generate per-file graph 10: DSD curves at the nearest gates to these ranges in metres.",
+    )
+    parser.add_argument(
+        "--dsd-target-height-m",
+        type=float,
+        default=DSD_TARGET_HEIGHT_M,
+        help="Compatibility alias for --dsd-ranges-m with one height in metres.",
+    )
     parser.add_argument("--spectrum-var", default=SPECTRUM_VAR, help="Processed spectrum variable for the spectrogram.")
     parser.add_argument("--target-time-offset-minutes", type=float, default=TARGET_TIME_OFFSET_MINUTES, help="Target profile time measured from each file start.")
     parser.add_argument("--range-limits", nargs=2, type=float, default=RANGE_LIMITS, metavar=("MIN_M", "MAX_M"), help="Full figure height limits in metres.")
@@ -560,14 +732,36 @@ def main() -> None:
         default=PROCESSES,
         help="Optional process labels to keep before plotting.",
     )
-    parser.add_argument("--skip-distance-velocity", action="store_true", help="Skip the tenth figure.")
+    parser.add_argument(
+        "--exclude-processes",
+        nargs="*",
+        default=EXCLUDE_PROCESSES,
+        help="Process labels to omit from process-based figures and aggregate KDEs.",
+    )
+    parser.add_argument("--skip-distance-velocity", action="store_true", help="Skip the bright-band/delta-v aggregate KDE figure.")
     args = parser.parse_args()
     reset_cache = bool(args.force_process or args.reset_cache)
+    dsd_ranges_m = args.dsd_ranges_m
+    if dsd_ranges_m is None and args.dsd_target_height_m is not None:
+        dsd_ranges_m = [args.dsd_target_height_m]
+    needs_dsd_3d = bool(dsd_ranges_m)
 
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    combined_csv = output_dir / "combined_column_process_scan.csv"
+    combined_csv_written = False
 
-    if args.raw_dir is not None and not args.scan_glob:
+    if args.aggregate_products:
+        product_dir = args.product_dir.resolve()
+        print(f"[aggregate] scanning product checkpoints under {product_dir}")
+        frame = _aggregate_existing_product_csvs(
+            product_dir,
+            combined_csv,
+            sample_per_process=args.aggregate_sample_per_process,
+            chunksize=args.aggregate_chunksize,
+        )
+        combined_csv_written = True
+    elif args.raw_dir is not None and not args.scan_glob:
         raw_dir = args.raw_dir.resolve()
         product_dir = args.product_dir.resolve()
         frames = []
@@ -585,7 +779,7 @@ def main() -> None:
                 ze_th=args.ze_th,
                 min_points_trend=args.min_points_trend,
                 save_spe_3d=args.save_spe_3d,
-                save_dsd_3d=args.save_dsd_3d,
+                save_dsd_3d=args.save_dsd_3d or needs_dsd_3d,
             )
             per_file_output = output_dir / raw_path.stem
             figure_mrr, _figure_product = _load_or_process_product(
@@ -596,7 +790,8 @@ def main() -> None:
                 # requested; load that result for figure generation.
                 force=False,
                 save_spe_3d=args.save_spe_3d,
-                save_dsd_3d=args.save_dsd_3d,
+                save_dsd_3d=args.save_dsd_3d or needs_dsd_3d,
+                require_dsd_3d=needs_dsd_3d,
             )
             figure_paths = _make_per_file_figures(
                 figure_mrr,
@@ -607,6 +802,7 @@ def main() -> None:
                 spectrum_var=args.spectrum_var,
                 range_limits=tuple(args.range_limits),
                 short_range_limits=tuple(args.short_range_limits),
+                dsd_ranges_m=dsd_ranges_m,
                 processes=args.processes,
                 dpi=args.dpi,
             )
@@ -624,11 +820,20 @@ def main() -> None:
     if args.processes:
         selected = {str(process) for process in args.processes}
         frame = frame[frame["proc_label"].astype(str).isin(selected)].copy()
+    process_text = frame["proc_label"].astype("string").str.strip().str.lower()
+    frame = frame[frame["proc_label"].notna() & ~process_text.isin({"none", "nan", ""})].copy()
+    if args.exclude_processes:
+        excluded = {str(process).strip().lower() for process in args.exclude_processes}
+        process_text = frame["proc_label"].astype("string").str.strip().str.lower()
+        frame = frame[~process_text.isin(excluded)].copy()
     if frame.empty:
         raise ValueError("No rows remain after filtering.")
+    print("[process-counts] rows retained by process:")
+    for label, count in frame["proc_label"].astype(str).value_counts().sort_index().items():
+        print(f"  {label}: {count}")
 
-    combined_csv = output_dir / "combined_column_process_scan.csv"
-    frame.to_csv(combined_csv, index=False)
+    if not combined_csv_written:
+        frame.to_csv(combined_csv, index=False)
     combined_nc = output_dir / "combined_process_samples.nc"
     _samples_to_xarray(frame).to_netcdf(combined_nc)
 
@@ -644,6 +849,7 @@ def main() -> None:
         output_dir=output_dir,
         filename="kde_Dw_V_LWC_N_by_process.png",
         domain_sigma=args.kde_domain_sigma,
+        variable_limits=KDE_VARIABLE_LIMITS,
         dpi=args.dpi,
     )
     plt.close(fig_kde)

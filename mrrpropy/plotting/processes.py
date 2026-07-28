@@ -1102,6 +1102,8 @@ def plot_sliding_column_process(
         "process_colors",
         {
             "breakup": "#12af54",
+            "breakup_gain": "#13d7d7",
+            "breakup_loss": "#24ca24",
             "growth_depletion": "#1b9e77",
             "growth_depletion_gain": "#f808d0",
             "growth_depletion_loss": "#ff0000",
@@ -1976,6 +1978,8 @@ def plot_sliding_process_scatter_compare(
         "process_colors",
         {
             "breakup": "#d95f02",
+            "breakup_gain": "#13d7d7",
+            "breakup_loss": "#24ca24",
             "growth_depletion": "#1b9e77",
             "growth_depletion_gain": "#7570b3",
             "growth_depletion_loss": "#6a3d9a",
@@ -2210,6 +2214,8 @@ def plot_classified_processes_on_hexagram(
         "process_colors",
         {
             "breakup": "#d95f02",
+            "breakup_gain": "#13d7d7",
+            "breakup_loss": "#24ca24",
             "growth_depletion": "#1b9e77",
             "growth_depletion_gain": "#7570b3",
             "growth_depletion_loss": "#6a3d9a",

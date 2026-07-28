@@ -34,6 +34,26 @@ developer workflow around it.
 - Keep scientific algorithm changes confined to the processing modules and treat
   workflow, packaging, tests, and CI as separate concerns.
 
+## Paper figures
+
+`Workbench/scripts/build_paper_figures.py` builds the Workbench paper figures.
+Per-file graph 10 is an optional droplet-size-distribution plot for user
+selected ranges. Set `DSD_RANGES_M` in
+`Workbench/scripts/paper_figures_config.py` or pass, for example:
+
+```powershell
+.venv\Scripts\python.exe Workbench\scripts\build_paper_figures.py `
+  --raw-dir "Workbench/test files/qtest" `
+  --dsd-ranges-m 1500 2000 2700
+```
+
+The graph uses `MRRProData.plot_DSD_by_range` and selects the nearest available
+range gate for each requested value. Existing cached products are not rebuilt
+automatically; if a cached product lacks `dsd_3D`, graph 10 is skipped with a
+warning. If graph 10 is requested while products are newly created or explicitly
+rebuilt with `--reset-cache 1`, the paper workflow saves `dsd_3D` in those
+products.
+
 ## Rain-process trends
 
 The microphysical rain-process workflow now defaults to a non-parametric vertical
