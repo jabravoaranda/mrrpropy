@@ -1587,13 +1587,12 @@ def sliding_rain_classification(
         "selection_mode": "sliding",
     }
     sliding_ds = _sliding_dataframe_to_dataset(sliding_df)
-    breakpoint()
     return sliding_ds
 
 
 def build_fused_column_process_dataframe(
     subject: SupportsRainAnalysis,
-    sliding_df: pd.DataFrame,
+    sliding_df: xr.Dataset | pd.DataFrame,
     *,
     min_consecutive: int = 3,
     allowed_processes: tuple[str, ...] | None = None,
@@ -1611,8 +1610,8 @@ def build_fused_column_process_dataframe(
     """
     Exploratory Option B: fuse vertical sliding detections into consolidated layers.
 
-    The input ``sliding_df`` is expected to be the dataframe returned by
-    :func:`sliding_rain_classification`. For each time step, the
+    The input ``sliding_df`` may be the dataset returned by
+    :func:`sliding_rain_classification` or its dataframe representation. For each time step, the
     function searches for *vertically adjacent* runs of the same process label,
     fuses each run into one vertical layer, recomputes the microphysical trends
     on the fused layer using ``subject.raprompro``, and reclassifies the fused
@@ -1647,8 +1646,10 @@ def build_fused_column_process_dataframe(
     event and populates recomputed fields with NaNs, while recording a short
     error message in ``recompute_error``.
     """
+    if isinstance(sliding_df, xr.Dataset):
+        sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
     if not isinstance(sliding_df, pd.DataFrame):
-        raise TypeError("sliding_df must be a pandas DataFrame.")
+        raise TypeError("sliding_df must be an xr.Dataset or pandas DataFrame.")
     if sliding_df.empty:
         return pd.DataFrame()
     if min_consecutive <= 0:
@@ -1711,13 +1712,15 @@ def build_fused_column_process_dataframe(
             f"sliding_df is missing column {requested!r}. Available columns: {list(df.columns)!r}"
         )
 
-    # `sliding_rain_classification` uses z_bottom_m/z_top_m; keep the public
-    # signature generic, but accept the package-native names transparently.
+    # Keep the public signature generic while accepting all package-native
+    # names used by dataframe and dataset representations.
     resolved_time_col = _resolve_column(sliding_df, time_col, ("time",))
     resolved_process_col = _resolve_column(sliding_df, process_col, ("proc_label",))
-    resolved_z_top_col = _resolve_column(sliding_df, z_top_col, ("z_top_m", "z_max_m"))
+    resolved_z_top_col = _resolve_column(
+        sliding_df, z_top_col, ("z_top_m", "range_top_m", "z_max_m")
+    )
     resolved_z_bottom_col = _resolve_column(
-        sliding_df, z_bottom_col, ("z_bottom_m", "z_min_m")
+        sliding_df, z_bottom_col, ("z_bottom_m", "range_bottom_m", "z_min_m")
     )
 
     has_window_id = "window_id" in sliding_df.columns

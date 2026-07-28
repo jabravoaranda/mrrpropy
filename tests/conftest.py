@@ -177,5 +177,3 @@ def generated_raprompro_path(
             f"Expected generated file was not created: {output_path}"
         )
     return output_path
-
-

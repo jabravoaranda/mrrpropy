@@ -16,6 +16,9 @@ import numpy as np
 import pandas as pd
 
 from mrrpropy.rain_process_classification.hexagram import plot_process_to_hexagram
+from mrrpropy.rain_process_classification.rain_process_algorithm import (
+    sliding_rain_classification_to_dataframe,
+)
 from mrrpropy.plotting.processes import plot_fused_process_quicklook
 from mrrpropy.raw_class import MRRProData
 
@@ -86,12 +89,14 @@ class PlotContext:
     @property
     def sliding_df(self) -> pd.DataFrame:
         if self._sliding_df is None:
-            self._sliding_df = self.mrr.sliding_rain_classification(
-                period=PERIOD,
-                k=11,
-                window_thickness_m=500.0,
-                window_step_m=None,
-                min_tau_strength=0.5,
+            self._sliding_df = sliding_rain_classification_to_dataframe(
+                self.mrr.sliding_rain_classification(
+                    period=PERIOD,
+                    k=11,
+                    window_thickness_m=500.0,
+                    window_step_m=None,
+                    min_tau_strength=0.5,
+                )
             )
         return self._sliding_df
 
@@ -342,15 +347,9 @@ def plot_classified_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
     return _save(fig, output_dir, "plot_classified_processes_on_hexagram.png")
 
 
-<<<<<<< HEAD
-def plot_column_process_scan(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _, _ = ctx.mrr.plot_column_process_scan(
-        scan_df=ctx.scan_df,
-=======
 def plot_sliding_column_process(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_sliding_column_process(
+    fig, _, _ = ctx.mrr.plot_sliding_column_process(
         sliding_df=ctx.sliding_df,
->>>>>>> pr-3
         figsize=(10, 6),
     )
     return _save(fig, output_dir, "plot_sliding_column_process.png")
@@ -364,13 +363,8 @@ def plot_sliding_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
             if label not in {"unknown", "no_data", "steady_or_weak"}
         }
     )[:2]
-<<<<<<< HEAD
-    fig, _, _ = ctx.mrr.plot_scan_process_scatter_compare(
-        scan_df=ctx.scan_df,
-=======
-    fig, _ = ctx.mrr.plot_sliding_process_scatter_compare(
+    fig, _, _ = ctx.mrr.plot_sliding_process_scatter_compare(
         sliding_df=ctx.sliding_df,
->>>>>>> pr-3
         processes=selected or None,
         show_centroids=True,
         figsize=(10, 8),
@@ -379,15 +373,9 @@ def plot_sliding_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_fused_quicklook(ctx: PlotContext, output_dir: Path) -> Path:
-<<<<<<< HEAD
-    fused_df = _fused_df_from_scan(ctx.scan_df)
-    fig, _, _ = plot_fused_process_quicklook(
-        ctx.scan_df,
-=======
     fused_df = _fused_df_from_sliding(ctx.sliding_df)
-    fig, _ = plot_fused_process_quicklook(
+    fig, _, _ = plot_fused_process_quicklook(
         ctx.sliding_df,
->>>>>>> pr-3
         fused_df,
         processes=QUICKLOOK_PROCESSES,
         figsize=(10, 6),
@@ -465,5 +453,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

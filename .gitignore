@@ -64,7 +64,6 @@ tests/generated/**
 tests/data/PRODUCTS/**
 !tests/data/PRODUCTS/.gitkeep
 tests/data/PRODUCT_SUBSETS/**
-tests/
 
 # Translations
 *.mo

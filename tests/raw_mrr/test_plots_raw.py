@@ -83,5 +83,3 @@ def test_plot_spectrogram_saves_png(raw_subset_10min_mrr, artifact_dir):
     assert filepath.suffix.lower() == ".png"
     assert filepath.stat().st_size > 0
     plt.close(fig)
-
-

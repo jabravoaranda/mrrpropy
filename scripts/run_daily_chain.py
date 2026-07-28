@@ -8,6 +8,9 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 
+from mrrpropy.rain_process_classification.rain_process_algorithm import (
+    sliding_rain_classification_to_dataframe,
+)
 from mrrpropy.raw_class import MRRProData
 
 matplotlib.use("Agg")
@@ -387,12 +390,14 @@ def _save_column_event_sliding(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sliding_df = mrr.sliding_rain_classification(
-        period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
-        k=k,
-        window_thickness_m=WINDOW_THICKNESS_M,
-        window_step_m=WINDOW_STEP_M,
-        min_tau_strength=MIN_TAU_STRENGTH,
+    sliding_df = sliding_rain_classification_to_dataframe(
+        mrr.sliding_rain_classification(
+            period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
+            k=k,
+            window_thickness_m=WINDOW_THICKNESS_M,
+            window_step_m=WINDOW_STEP_M,
+            min_tau_strength=MIN_TAU_STRENGTH,
+        )
     )
     episodes_df = mrr.detect_column_process_episodes(
         sliding_df=sliding_df,
@@ -440,15 +445,9 @@ def _save_column_event_sliding(
         index=False,
     )
 
-<<<<<<< HEAD
-    if not scan_df_plot.empty:
-        fig, _, _ = mrr.plot_column_process_scan(
-            scan_df=scan_df_plot,
-=======
     if not sliding_df_plot.empty:
-        fig, _ = mrr.plot_sliding_column_process(
+        fig, _, _ = mrr.plot_sliding_column_process(
             sliding_df=sliding_df_plot,
->>>>>>> pr-3
             color_mode="hexagram",
             processes=[
                 "breakup",
@@ -468,15 +467,9 @@ def _save_column_event_sliding(
         )
         plt.close(fig)
 
-<<<<<<< HEAD
-    if not scan_df_events.empty:
-        fig, _, _ = mrr.plot_column_process_scan(
-            scan_df=scan_df_events,
-=======
     if not sliding_df_events.empty:
-        fig, _ = mrr.plot_sliding_column_process(
+        fig, _, _ = mrr.plot_sliding_column_process(
             sliding_df=sliding_df_events,
->>>>>>> pr-3
             color_mode="hexagram",
             processes=[
                 "breakup",
@@ -715,5 +708,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

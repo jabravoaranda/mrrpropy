@@ -54,5 +54,3 @@ def test_build_fused_column_process_dataframe(
 
     assert int(fused.loc[0, "n_windows_merged"]) >= 3
     assert float(fused.loc[0, "thickness_fused"]) > 0.0
-
-

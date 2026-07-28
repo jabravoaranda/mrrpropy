@@ -243,5 +243,3 @@ def test_classify_rain_process_canonical_does_not_require_rgb_mapping():
 
     classified = classify_rain_process(None, analysis=analysis)
     assert str(classified["proc_label"].values[0]) == "activation"
-
-

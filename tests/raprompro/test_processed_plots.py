@@ -199,3 +199,26 @@ def test_plot_dsd_by_range(raprompro_subset_10min_loaded_mrr, artifact_dir):
     plt.close(fig)
 
 
+def test_plot_dsd_by_range_3d_reuses_supplied_axes(
+    raprompro_subset_10min_loaded_mrr,
+):
+    fig = plt.figure(figsize=(8, 6))
+    ax = fig.add_subplot(111, projection="3d")
+
+    (
+        result_fig,
+        result_ax,
+        filepath,
+    ) = raprompro_subset_10min_loaded_mrr.plot_DSD_by_range_3d(
+        target_datetime=datetime.datetime(2025, 10, 29, 19, 28, 0),
+        ranges=np.arange(500, 2500, 250),
+        fig=fig,
+        ax=ax,
+    )
+
+    assert result_fig is fig
+    assert result_ax is ax
+    assert filepath is None
+    assert result_ax.name == "3d"
+    assert result_ax.collections
+    plt.close(fig)

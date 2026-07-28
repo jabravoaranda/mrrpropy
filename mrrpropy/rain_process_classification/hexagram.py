@@ -1029,9 +1029,4 @@ def plot_process_to_hexagram(
         )
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
-<<<<<<< HEAD:mrrpropy/hexagram.py
     return fig, ax, filepath
-
-=======
-    return (fig, filepath) if savefig else fig
->>>>>>> pr-3:mrrpropy/rain_process_classification/hexagram.py

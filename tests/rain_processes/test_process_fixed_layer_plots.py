@@ -283,7 +283,11 @@ def test_plot_event_vertical_percent_profiles(
     artifact_dir,
 ):
     output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
+    (
+        fig,
+        _,
+        path,
+    ) = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -350,5 +354,3 @@ def test_plot_process_vertical_percent_profiles(
     assert len(axes) == 1
     assert len(axes[0].lines) >= 3
     plt.close(fig)
-
-

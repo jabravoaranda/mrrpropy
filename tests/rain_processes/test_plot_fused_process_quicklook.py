@@ -8,6 +8,9 @@ import pandas as pd
 import pytest
 
 from mrrpropy.plotting.processes import plot_fused_process_quicklook
+from mrrpropy.rain_process_classification.rain_process_algorithm import (
+    sliding_rain_classification_to_dataframe,
+)
 
 from tests.rain_processes.test_process_sliding_plots import (
     MIN_TAU_STRENGTH,
@@ -41,19 +44,22 @@ def sliding_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
     )
 
 
-def _make_fused_df_from_sliding_snapshot(sliding_df: pd.DataFrame) -> pd.DataFrame:
+def _make_fused_df_from_sliding_snapshot(sliding_df) -> pd.DataFrame:
     """
     Build a minimal fused_df-like dataframe from a single-time sliding snapshot.
 
     This keeps plotting tests fast while still relying on the same sliding_df data
     produced by the sliding workflow tests.
     """
+    sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
     if sliding_df.empty:
         return pd.DataFrame()
 
     valid = sliding_df.copy()
-    valid["z_top_m"] = pd.to_numeric(valid["z_top_m"], errors="coerce")
-    valid["z_bottom_m"] = pd.to_numeric(valid["z_bottom_m"], errors="coerce")
+    top_col = "z_top_m" if "z_top_m" in valid else "range_top_m"
+    bottom_col = "z_bottom_m" if "z_bottom_m" in valid else "range_bottom_m"
+    valid["z_top_m"] = pd.to_numeric(valid[top_col], errors="coerce")
+    valid["z_bottom_m"] = pd.to_numeric(valid[bottom_col], errors="coerce")
     valid = valid[valid["z_top_m"].gt(valid["z_bottom_m"])].copy()
     if valid.empty:
         return pd.DataFrame()
@@ -101,13 +107,8 @@ def test_plot_fused_process_quicklook_savefig(sliding_df, fused_df, artifact_dir
 
     output_dir = _sliding_artifact_dir(artifact_dir)
 
-<<<<<<< HEAD
     fig, _, path = plot_fused_process_quicklook(
-        scan_df,
-=======
-    fig, path = plot_fused_process_quicklook(
         sliding_df,
->>>>>>> pr-3
         fused_df,
         processes=QUICKLOOK_PROCESSES,
         savefig=True,
@@ -123,15 +124,10 @@ def test_plot_fused_process_quicklook_savefig(sliding_df, fused_df, artifact_dir
     plt.close(fig)
 
 
-<<<<<<< HEAD
-def test_plot_fused_process_quicklook_returns_none_path_by_default(scan_df, fused_df):
-    fig, _, path = plot_fused_process_quicklook(scan_df, fused_df)
-=======
 def test_plot_fused_process_quicklook_returns_none_path_by_default(
     sliding_df, fused_df
 ):
-    fig, path = plot_fused_process_quicklook(sliding_df, fused_df)
->>>>>>> pr-3
+    fig, _, path = plot_fused_process_quicklook(sliding_df, fused_df)
     assert isinstance(fig, Figure)
     assert path is None
     plt.close(fig)
@@ -143,26 +139,14 @@ def test_plot_fused_process_quicklook_processes_filter(sliding_df, fused_df):
 
     first_label = str(pd.unique(fused_df["proc_label_fused"].astype(str))[0])
 
-<<<<<<< HEAD
     fig_keep, _, _ = plot_fused_process_quicklook(
-        scan_df, fused_df, processes=[first_label]
-=======
-    fig_keep, _ = plot_fused_process_quicklook(
         sliding_df, fused_df, processes=[first_label]
->>>>>>> pr-3
     )
     assert len(fig_keep.axes[0].patches) >= 1
     plt.close(fig_keep)
 
-<<<<<<< HEAD
     fig_drop, _, _ = plot_fused_process_quicklook(
-        scan_df, fused_df, processes=["__no_such_process__"]
-=======
-    fig_drop, _ = plot_fused_process_quicklook(
         sliding_df, fused_df, processes=["__no_such_process__"]
->>>>>>> pr-3
     )
     assert len(fig_drop.axes[0].patches) == 0
     plt.close(fig_drop)
-
-

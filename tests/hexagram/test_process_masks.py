@@ -24,5 +24,3 @@ def test_plot_hexagram_process(artifact_dir):
 
     assert isinstance(fig, matplotlib.figure.Figure)
     assert filepath.exists()
-
-
