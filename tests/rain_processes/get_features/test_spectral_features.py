@@ -1,7 +1,7 @@
 import numpy as np
 import xarray as xr
 
-from mrrpropy.analysis.process_features import get_spectral_features
+from mrrpropy.rain_process_classification.process_features import get_spectral_features
 
 
 def test_get_spectral_features_fixed_layer_simple_two_bin():
@@ -46,7 +46,7 @@ def test_get_spectral_features_fixed_layer_simple_two_bin():
     assert float(features["v_p50_bottom"].values[0]) == -2.0
 
 
-def test_get_spectral_features_scan_uses_z_center_as_layer_coord():
+def test_get_spectral_features_sliding_uses_z_center_as_layer_coord():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -69,7 +69,7 @@ def test_get_spectral_features_scan_uses_z_center_as_layer_coord():
 
     features = get_spectral_features(
         ds,
-        mode="scan",
+        mode="sliding",
         z_top=z_top,
         z_bottom=z_bottom,
         z_center=z_center,

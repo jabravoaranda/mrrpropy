@@ -1,7 +1,7 @@
 import numpy as np
 import xarray as xr
 
-from mrrpropy.analysis.process_features import get_context
+from mrrpropy.rain_process_classification.process_features import get_context
 
 
 def test_get_context_fixed_layer_simple():
@@ -35,7 +35,7 @@ def test_get_context_fixed_layer_simple():
     assert float(features["dist_bb_peak"].values[0]) == 0.0
 
 
-def test_get_context_scan_uses_z_center_as_layer_coord():
+def test_get_context_sliding_uses_z_center_as_layer_coord():
     ds = xr.Dataset(
         coords={
             "time": np.array(["2025-10-29T19:23:00"], dtype="datetime64[s]"),
@@ -50,7 +50,7 @@ def test_get_context_scan_uses_z_center_as_layer_coord():
 
     features = get_context(
         ds,
-        mode="scan",
+        mode="sliding",
         z_top=z_top,
         z_bottom=z_bottom,
         z_center=z_center,

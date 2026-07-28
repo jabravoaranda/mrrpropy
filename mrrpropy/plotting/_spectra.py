@@ -28,7 +28,7 @@ def nearest_period(
     r_sel = float(ds["range"].sel(range=target_range, method="nearest").values)
     return t_sel, r_sel
 
-
+# TODO: This should not be necessary. All ramprompro datasets should have a velocity axis.
 def get_velocity_axis(subject: SupportsSpectralAccess, n_bins: int) -> np.ndarray:
     """
     Build a Doppler velocity axis when the dataset does not expose one directly.

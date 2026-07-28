@@ -4,9 +4,11 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.rain_process_classification import (
+    rain_process_algorithm as process_analysis,
+)
 
-from tests.rain_processes.test_process_scan_plots import (
+from tests.rain_processes.test_process_sliding_plots import (
     MIN_TAU_STRENGTH,
     WINDOW_STEP_M,
     WINDOW_THICKNESS_M,
@@ -14,8 +16,8 @@ from tests.rain_processes.test_process_scan_plots import (
 
 
 @pytest.fixture(scope="session")
-def scan_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
-    return raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+def sliding_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
+    return raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=WINDOW_THICKNESS_M,
@@ -25,11 +27,11 @@ def scan_df(raprompro_subset_10min_loaded_mrr) -> pd.DataFrame:
 
 
 def test_build_fused_column_process_dataframe(
-    raprompro_subset_10min_loaded_mrr, scan_df
+    raprompro_subset_10min_loaded_mrr, sliding_df
 ):
     fused = process_analysis.build_fused_column_process_dataframe(
         raprompro_subset_10min_loaded_mrr,
-        scan_df,
+        sliding_df,
         min_consecutive=3,
         variable_threshold="Ze",
         threshold_value=-999.0,

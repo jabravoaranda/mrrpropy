@@ -221,9 +221,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-
-# Data files (this should keep the example nc.)
 *.nc
-
-# Workbench--these are personal tests and changes.
-/Workbench
+*.session
+*.session-journal

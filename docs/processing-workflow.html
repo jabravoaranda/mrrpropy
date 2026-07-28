@@ -73,12 +73,11 @@ fig, ax = mrr.quicklook(variable="Ze", source="raprompro", vmin=0, vmax=40)</cod
     </p>
     <pre><code>from datetime import datetime
 
-analysis = mrr.rain_process_analyze(
+analysis = mrr.layer_rain_classification(
     period=(datetime(2025, 3, 8, 12, 0, 0), datetime(2025, 3, 8, 12, 10, 0)),
     layer=(1000.0, 2000.0),
     k=11,
     ze_th=-5.0,
-    trend_method="kendall_theilsen",
     tau_zero_tol=0.05,
     min_points_trend=10,
 )
@@ -89,8 +88,7 @@ classified = mrr.classify_rain_process(
 )</code></pre>
     <p>
       The downstream RGB mapping and classification consume canonical
-      <code>trend_*</code> variables, so the method can still be swapped to
-      <code>trend_method="ols"</code> for legacy or diagnostic comparison.
+      <code>trend_*</code> variables produced by the Kendall/Theil-Sen workflow.
     </p>
 
     <h2>Scientific reference and provenance</h2>

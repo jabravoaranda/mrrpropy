@@ -6,7 +6,9 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.rain_process_classification import (
+    rain_process_algorithm as process_analysis,
+)
 
 matplotlib.use("Agg")
 
@@ -19,23 +21,6 @@ class _SyntheticProcessedMRR:
 
     def _is_processed(self):
         return True
-
-
-def test_compute_layer_trend_ols(raprompro_subset_10min_loaded_mrr):
-    result = raprompro_subset_10min_loaded_mrr.compute_layer_trend_ols(
-        z_bottom_m=1000.0,
-        z_top_m=2000.0,
-        variable_threshold="Ze",
-        threshold_value=-5.0,
-        eps_mode="hourly_quantile",
-        q=0.1,
-        time_dim="time",
-    )
-
-    assert result.attrs["trend_method"] == "ols_legacy"
-    for variable_name in ("Dm", "Nw", "LWC"):
-        for prefix in ("b", "a", "r2", "F", "eps", "n_fit", "mask_fit"):
-            assert f"{prefix}_{variable_name}" in result
 
 
 def test_compute_layer_trend_kendall_theilsen(raprompro_subset_10min_loaded_mrr):
@@ -69,7 +54,6 @@ def test_compute_layer_trend_kendall_theilsen(raprompro_subset_10min_loaded_mrr)
             f"trend_p_{variable_name}",
             f"n_fit_{variable_name}",
             f"mask_fit_{variable_name}",
-            f"b_{variable_name}",
         ):
             assert field_name in result
         assert result[f"tau_{variable_name}"].shape == (n_time,)
@@ -110,55 +94,17 @@ def test_compute_layer_trend_uses_descending_rain_evolution():
     assert result["tau_LWC"].values[0] > 0.9
 
 
-def test_compute_layer_trend_ols_exposes_canonical_trend_fields(
+def test_layer_rain_classification_uses_nonparametric_pipeline(
     raprompro_subset_10min_loaded_mrr,
 ):
-    result = raprompro_subset_10min_loaded_mrr.compute_layer_trend(
-        z_bottom_m=1000.0,
-        z_top_m=2000.0,
-        trend_method="ols",
-        variable_threshold="Ze",
-        threshold_value=-5.0,
-        time_dim="time",
-        min_points_trend=6,
-    )
-
-    assert result.attrs["trend_method"] == "ols"
-    for variable_name in ("Dm", "Nw", "LWC"):
-        for field_name in (
-            f"b_{variable_name}",
-            f"r2_{variable_name}",
-            f"trend_mag_{variable_name}",
-            f"trend_sign_{variable_name}",
-            f"trend_strength_{variable_name}",
-            f"trend_score_{variable_name}",
-            f"trend_p_{variable_name}",
-        ):
-            assert field_name in result
-
-
-def test_rain_process_analyze_uses_nonparametric_pipeline(
-    raprompro_subset_10min_loaded_mrr,
-    monkeypatch,
-):
-    def _raise_if_called(*args, **kwargs):
-        raise AssertionError(
-            "OLS helper should not be used by the default analysis pipeline."
-        )
-
-    monkeypatch.setattr(process_analysis, "ols_slope_intercept_r2", _raise_if_called)
-
-    analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="fixed_layer",
         z_bottom_m=1000.0,
         z_top_m=2000.0,
         ze_th=-5.0,
         min_points_trend=6,
         tau_zero_tol=0.05,
-        eps_q=0.01,
-        rgb_q=0.02,
         vars_trend=("Dm", "Nw", "LWC"),
     )
 
@@ -183,7 +129,6 @@ def test_rain_process_analyze_uses_nonparametric_pipeline(
             "trend_p",
         ):
             assert f"{prefix}_{variable_name}" in analysis
-        assert f"b_{variable_name}" in analysis
 
     assert analysis.attrs["trend_method"] == "kendall_theilsen"
     assert analysis.attrs["rgb_method"] == "trend_score"
@@ -225,10 +170,9 @@ def test_rain_process_analyze_uses_nonparametric_pipeline(
 
 
 def test_build_process_dynamics_dataframe(raprompro_subset_10min_loaded_mrr):
-    analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="fixed_layer",
         z_bottom_m=1000.0,
         z_top_m=2000.0,
         min_points_trend=6,
@@ -267,10 +211,9 @@ def test_build_process_dynamics_dataframe(raprompro_subset_10min_loaded_mrr):
 
 
 def test_summarize_process_dynamics(raprompro_subset_10min_loaded_mrr):
-    analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="fixed_layer",
         z_bottom_m=1000.0,
         z_top_m=2000.0,
         min_points_trend=6,
@@ -294,42 +237,68 @@ def test_summarize_process_dynamics(raprompro_subset_10min_loaded_mrr):
     assert summary["n_samples"].sum() == len(classified["time"])
 
 
-def test_build_column_process_scan_dataframe(raprompro_subset_10min_loaded_mrr):
-    scan_df = raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
-        period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
+def test_sliding_rain_classification(raprompro_subset_10min_loaded_mrr):
+    sliding = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+        period=(
+            datetime(2025, 10, 29, 19, 23, 0),
+            datetime(2025, 10, 29, 19, 33, 0),
+        ),
         k=11,
         window_thickness_m=1000.0,
         window_step_m=100.0,
         min_tau_strength=0.10,
     )
 
-    assert isinstance(scan_df, pd.DataFrame)
-    assert not scan_df.empty
+    assert isinstance(sliding, xr.Dataset)
+    assert sliding.dims["time"] > 0
+    assert sliding.dims["range"] > 0
+    assert tuple(sliding["proc_label"].dims) == ("time", "range")
     for field_name in (
-        "time",
-        "window_id",
-        "z_min_m",
-        "z_max_m",
-        "z_bottom_m",
-        "z_top_m",
-        "z_center_m",
         "proc_label",
         "proc_strength",
         "Dm_delta_pct",
         "Nw_delta_pct",
         "LWC_delta_pct",
     ):
-        assert field_name in scan_df.columns
-    assert scan_df.attrs["window_thickness_m"] == pytest.approx(1000.0)
-    assert scan_df.attrs["window_step_m"] == pytest.approx(100.0)
-    assert scan_df.attrs["selection_mode"] == "scan"
-    assert scan_df["window_id"].nunique() >= 1
+        assert field_name in sliding
+    for coord_name in (
+        "window_id",
+        "range_bottom_m",
+        "range_top_m",
+        "range",
+    ):
+        assert coord_name in sliding.coords
+    for duplicate_field_name in (
+        "z_min_m",
+        "z_max_m",
+        "z_bottom_m",
+        "z_top_m",
+        "z_center_m",
+        "z_base_m",
+        "dz_m",
+        "dz_km",
+        "minutes",
+        "window_thickness_m",
+        "window_step_m",
+        "trend_method",
+        "selection_mode",
+        "p_Dm",
+        "ts_Dm",
+        "sign_Dm",
+        "strength_Dm",
+    ):
+        assert duplicate_field_name not in sliding
+        assert duplicate_field_name not in sliding.coords
+    assert sliding.attrs["window_thickness_m"] == pytest.approx(1000.0)
+    assert sliding.attrs["window_step_m"] == pytest.approx(100.0)
+    assert sliding.attrs["selection_mode"] == "sliding"
+    assert sliding.attrs["range_represents"] == "source_range_coordinate_m"
 
 
-def test_public_rain_process_analyze_defaults_to_scan(
+def test_public_sliding_rain_classification_returns_sliding_dataset(
     raprompro_subset_10min_loaded_mrr,
 ):
-    scan_df = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    sliding = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
         window_thickness_m=1000.0,
@@ -337,16 +306,17 @@ def test_public_rain_process_analyze_defaults_to_scan(
         min_tau_strength=0.10,
     )
 
-    assert isinstance(scan_df, pd.DataFrame)
-    assert not scan_df.empty
-    assert scan_df.attrs["selection_mode"] == "scan"
+    assert isinstance(sliding, xr.Dataset)
+    assert sliding.dims["time"] > 0
+    assert sliding.dims["range"] > 0
+    assert sliding.attrs["selection_mode"] == "sliding"
 
 
 def test_legacy_layer_argument_still_works_with_warning(
     raprompro_subset_10min_loaded_mrr,
 ):
     with pytest.warns(FutureWarning):
-        analysis = raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+        analysis = raprompro_subset_10min_loaded_mrr.layer_rain_classification(
             period=(
                 datetime(2025, 10, 29, 19, 23, 0),
                 datetime(2025, 10, 29, 19, 33, 0),
@@ -361,18 +331,15 @@ def test_legacy_layer_argument_still_works_with_warning(
     assert analysis.attrs["selection_mode"] == "fixed_layer"
 
 
-def test_detect_column_process_episodes_from_scan():
+def test_detect_column_process_episodes_from_sliding():
     times = pd.date_range("2025-10-29T19:23:00", periods=10, freq="10s")
-    scan_df = pd.DataFrame(
+    sliding_df = pd.DataFrame(
         {
             "time": times,
             "window_id": [0] * 10,
-            "z_min_m": [1000.0] * 10,
-            "z_max_m": [2000.0] * 10,
-            "z_center_m": [1500.0] * 10,
-            "window_thickness_m": [1000.0] * 10,
-            "window_step_m": [100.0] * 10,
-            "trend_method": ["kendall_theilsen"] * 10,
+            "range_bottom_m": [1000.0] * 10,
+            "range_top_m": [2000.0] * 10,
+            "range": [1500.0] * 10,
             "proc_label": [
                 "evaporation",
                 "evaporation",
@@ -406,7 +373,7 @@ def test_detect_column_process_episodes_from_scan():
 
     episodes = process_analysis.detect_column_process_episodes(
         None,
-        scan_df=scan_df,
+        sliding_df=sliding_df,
         min_consecutive_profiles=6,
     )
 

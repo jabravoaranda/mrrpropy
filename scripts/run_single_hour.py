@@ -230,11 +230,10 @@ def _save_layer_rain_analysis(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    analysis = mrr.rain_process_analyze(
+    analysis = mrr.layer_rain_classification(
         period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
         layer=layer,
         k=k,
-        trend_method="kendall_theilsen",
     )
     classified = mrr.classify_rain_process(
         analysis=analysis,
@@ -378,7 +377,7 @@ def _save_layer_rain_analysis(
             pass
 
 
-def _save_column_event_scan(
+def _save_column_event_sliding(
     mrr: MRRProData,
     *,
     period: tuple[pd.Timestamp, pd.Timestamp],
@@ -390,30 +389,31 @@ def _save_column_event_scan(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    scan_df = mrr.build_column_process_scan_dataframe(
+    sliding_df = mrr.sliding_rain_classification(
         period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
         k=k,
         window_thickness_m=window_thickness_m,
         window_step_m=window_step_m,
         min_tau_strength=MIN_TAU_STRENGTH,
-        trend_method="kendall_theilsen",
     )
     episodes_df = mrr.detect_column_process_episodes(
-        scan_df=scan_df,
+        sliding_df=sliding_df,
         min_consecutive_profiles=6,
     )
 
-    scan_df.to_csv(output_dir / "column_process_scan.csv", index=False)
+    sliding_df.to_csv(output_dir / "sliding_column_process.csv", index=False)
     episodes_df.to_csv(output_dir / "column_process_episodes.csv", index=False)
 
-    scan_df_plot = scan_df[~scan_df["proc_label"].isin(["unknown", "no_data"])].copy()
-    scan_df_plot.attrs = dict(getattr(scan_df, "attrs", {}))
-    scan_df_plot.to_csv(
-        output_dir / "column_process_scan_plot_filtered.csv",
+    sliding_df_plot = sliding_df[
+        ~sliding_df["proc_label"].isin(["unknown", "no_data"])
+    ].copy()
+    sliding_df_plot.attrs = dict(getattr(sliding_df, "attrs", {}))
+    sliding_df_plot.to_csv(
+        output_dir / "sliding_column_process_plot_filtered.csv",
         index=False,
     )
 
-    scan_df["time"] = pd.to_datetime(scan_df["time"])
+    sliding_df["time"] = pd.to_datetime(sliding_df["time"])
     if not episodes_df.empty:
         episodes_df["start_time"] = pd.to_datetime(episodes_df["start_time"])
         episodes_df["end_time"] = pd.to_datetime(episodes_df["end_time"])
@@ -421,30 +421,36 @@ def _save_column_event_scan(
     event_frames: list[pd.DataFrame] = []
     for _, event in episodes_df.iterrows():
         mask = (
-            (scan_df["proc_label"] == event["proc_label"])
-            & (scan_df["window_id"] == event["window_id"])
-            & (scan_df["time"] >= event["start_time"])
-            & (scan_df["time"] <= event["end_time"])
+            (sliding_df["proc_label"] == event["proc_label"])
+            & (sliding_df["window_id"] == event["window_id"])
+            & (sliding_df["time"] >= event["start_time"])
+            & (sliding_df["time"] <= event["end_time"])
         )
-        event_frames.append(scan_df.loc[mask])
+        event_frames.append(sliding_df.loc[mask])
 
     if event_frames:
-        scan_df_events = pd.concat(event_frames, ignore_index=True).drop_duplicates()
+        sliding_df_events = pd.concat(event_frames, ignore_index=True).drop_duplicates()
     else:
-        scan_df_events = scan_df.iloc[0:0].copy()
+        sliding_df_events = sliding_df.iloc[0:0].copy()
 
-    scan_df_events = scan_df_events[
-        ~scan_df_events["proc_label"].isin(["steady_or_weak", "unknown", "no_data"])
+    sliding_df_events = sliding_df_events[
+        ~sliding_df_events["proc_label"].isin(["steady_or_weak", "unknown", "no_data"])
     ].copy()
-    scan_df_events.attrs = dict(getattr(scan_df, "attrs", {}))
-    scan_df_events.to_csv(
-        output_dir / "column_process_scan_events_only.csv",
+    sliding_df_events.attrs = dict(getattr(sliding_df, "attrs", {}))
+    sliding_df_events.to_csv(
+        output_dir / "sliding_column_process_events_only.csv",
         index=False,
     )
 
+<<<<<<< HEAD
     if not scan_df_plot.empty:
         fig, _, _ = mrr.plot_column_process_scan(
             scan_df=scan_df_plot,
+=======
+    if not sliding_df_plot.empty:
+        fig, _ = mrr.plot_sliding_column_process(
+            sliding_df=sliding_df_plot,
+>>>>>>> pr-3
             color_mode="hexagram",
             processes=[
                 "breakup",
@@ -464,10 +470,17 @@ def _save_column_event_scan(
         )
         plt.close(fig)
 
+<<<<<<< HEAD
     if not scan_df_events.empty:
         fig, _, _ = mrr.plot_column_process_scan(
             scan_df=scan_df_events,
             color_mode="process",
+=======
+    if not sliding_df_events.empty:
+        fig, _ = mrr.plot_sliding_column_process(
+            sliding_df=sliding_df_events,
+            color_mode="rain_signature",
+>>>>>>> pr-3
             processes=[
                 "breakup",
                 "growth_depletion",
@@ -484,8 +497,8 @@ def _save_column_event_scan(
             alpha=0.92,
             scale_by_strength=True,
         )
-        period_start = scan_df_events.attrs.get("period_start", "t0")
-        period_end = scan_df_events.attrs.get("period_end", "t1")
+        period_start = sliding_df_events.attrs.get("period_start", "t0")
+        period_end = sliding_df_events.attrs.get("period_end", "t1")
         safe_t0 = str(period_start).replace(":", "").replace("-", "").replace(" ", "_")
         safe_t1 = str(period_end).replace(":", "").replace("-", "").replace(" ", "_")
         events_path = (
@@ -500,7 +513,7 @@ def main() -> None:
         description=(
             "Run the mrrpropy chain for one RAW file and a single-hour period: "
             "RaProMPro processing, raw/processed plots, optional fixed-layer "
-            "rain analysis, and column process-event scan."
+            "rain analysis, and column process-event sliding."
         )
     )
     parser.add_argument(
@@ -577,13 +590,13 @@ def main() -> None:
         "--window-thickness-m",
         type=float,
         default=WINDOW_THICKNESS_M,
-        help="Vertical thickness of the column-scan moving window in metres.",
+        help="Vertical thickness of the sliding-column moving window in metres.",
     )
     parser.add_argument(
         "--window-step-m",
         type=float,
         default=WINDOW_STEP_M,
-        help="Vertical step of the column-scan moving window in metres.",
+        help="Vertical step of the sliding-column moving window in metres.",
     )
     parser.add_argument(
         "--dpi",
@@ -600,7 +613,7 @@ def main() -> None:
 
     print(f"Input file      : {raw_path}")
     print(f"Output root     : {output_root}")
-    print(f"Column analysis : automatic whole-column scan")
+    print(f"Column analysis : automatic whole-sliding column")
     print(f"Window thickness: {args.window_thickness_m:g} m")
     print(f"Window step     : {args.window_step_m:g} m")
     print(f"Hexagram k      : {args.k}")
@@ -666,7 +679,7 @@ def main() -> None:
             dpi=args.dpi,
             include_spectral_plots=args.include_spectral_plots,
         )
-        _save_column_event_scan(
+        _save_column_event_sliding(
             mrr,
             period=period,
             k=args.k,

@@ -74,8 +74,8 @@ versioning for published package releases.
 
 ### Changed
 
-- Rain-process classification now uses canonical trend diagnostics instead of
-  OLS slopes by default, while keeping OLS as an explicit legacy/diagnostic path.
+- Rain-process classification now uses canonical Kendall/Theil-Sen trend
+  diagnostics instead of linear-fit slopes.
 - Test modules are now grouped by domain under `tests/raw_mrr`,
   `tests/raprompro`, `tests/rain_processes`, and `tests/hexagram`.
 - The documentation site, production guide, and release-validation workflow now
@@ -99,7 +99,7 @@ versioning for published package releases.
 ### Changed
 
 - `MRRProData` now delegates plotting, rain-process analysis, and RaProMPro
-  processing/load responsibilities into dedicated modules.
+  preprocessing/load responsibilities into dedicated modules.
 - The enforced `mypy` lane now covers the extracted typed subset of the package.
 
 ## [0.0.1]

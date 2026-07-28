@@ -12,6 +12,7 @@ import xarray as xr
 
 from mrrpropy.plotting import _spectra
 
+# functions relating to the raw files - Ian.
 
 class SupportsRawPlotting(_spectra.SupportsSpectralAccess, Protocol):
     plot_cfg: Any

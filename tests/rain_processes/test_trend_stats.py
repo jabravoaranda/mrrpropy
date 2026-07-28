@@ -2,7 +2,9 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.rain_process_classification import (
+    rain_process_algorithm as process_analysis,
+)
 from mrrpropy.utils import compute_monotonic_trend
 
 

@@ -9,18 +9,18 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from mrrpropy.processes import (
+from mrrpropy.rain_process_classification.rain_process_info import (
     PROCESS_CODES as _PROCESS_CODES,
     PROCESS_MARKERS as _PROCESS_MARKERS,
     PROCESS_SIGNATURES as _PROCESS_SIGNATURES,
     ProcessSignature,
 )
-from mrrpropy.hexagram import (
+from mrrpropy.rain_process_classification.hexagram import (
     build_rgb_from_unit_scores,
     get_hexagram_assets,
     map_rgb_to_hexagram,
 )
-from mrrpropy.utils import compute_eps, compute_monotonic_trend, ols_slope_intercept_r2
+from mrrpropy.utils import compute_monotonic_trend
 
 
 PROCESS_SIGNATURES = _PROCESS_SIGNATURES
@@ -51,7 +51,8 @@ class SupportsRainAnalysis(Protocol):
     path: str | Path
     raprompro: xr.Dataset | None
 
-    def _is_processed(self) -> bool: ...
+    def _is_processed(self) -> bool:
+        ...
 
 
 def _resolve_processed_dataset(subject: SupportsRainAnalysis) -> xr.Dataset:
@@ -66,13 +67,10 @@ def _resolve_processed_dataset(subject: SupportsRainAnalysis) -> xr.Dataset:
 def _resolve_min_points(
     *,
     min_points_trend: int | None,
-    min_points_ols: int | None,
     default: int = 10,
 ) -> int:
     if min_points_trend is not None:
         return int(min_points_trend)
-    if min_points_ols is not None:
-        return int(min_points_ols)
     return int(default)
 
 
@@ -196,182 +194,6 @@ def _safe_relative_change(
     return 100.0 * (bottom - top) / scale
 
 
-def compute_layer_trend_ols(
-    subject: SupportsRainAnalysis,
-    *,
-    z_bottom_m: float | None = None,
-    z_top_m: float | None = None,
-    z_top: float | None = None,
-    z_base: float | None = None,
-    time_dim: str = "time",
-    variable_threshold: str = "Ze",
-    threshold_value: float = -5.0,
-    vars: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-    eps_mode: str = "hourly_quantile",
-    q: float = 0.01,
-    eps_floor_mode: str = "global_min",
-    min_points_ols: int = 10,
-) -> xr.Dataset:
-    """
-    Compute layer-wise legacy OLS trends of selected microphysical variables.
-
-    This function is retained for backward compatibility and diagnostic
-    comparison only. The recommended microphysical workflow now relies on
-    Kendall's tau plus Theil-Sen slope through :func:`compute_layer_trend`.
-    """
-    if not subject._is_processed():
-        raise RuntimeError("MRR-Pro data not processed (raprompro missing).")
-
-    ds = subject.raprompro
-    if ds is None:
-        raise RuntimeError("raprompro not loaded. Use load_raprompro().")
-
-    z_bottom_m, z_top_m = _resolve_layer_bounds(
-        z_bottom_m=z_bottom_m,
-        z_top_m=z_top_m,
-        z_top=z_top,
-        z_base=z_base,
-        caller="compute_layer_trend_ols",
-    )
-
-    layer = ds.sel({"range": slice(z_bottom_m, z_top_m)})
-
-    if time_dim not in layer.coords:
-        raise KeyError(f"Missing coord '{time_dim}' in dataset.")
-    if "range" not in layer.coords:
-        raise KeyError("Missing coord 'range' in dataset.")
-    if variable_threshold not in layer:
-        raise KeyError(f"Missing threshold variable '{variable_threshold}' in dataset.")
-
-    for variable_name in vars:
-        if variable_name not in layer:
-            raise KeyError(f"Missing variable '{variable_name}' in dataset.")
-
-    z_layer = layer["range"].values.astype(float)
-    depth = _distance_below_layer_top(z_layer, z_top_m=float(z_top_m))
-    dz = float(z_top_m - z_bottom_m)
-
-    ze = layer[variable_threshold]
-    ze_mask = xr.where(np.isfinite(ze) & (ze > threshold_value), True, False)
-
-    out = xr.Dataset(
-        coords={
-            time_dim: layer[time_dim].values,
-            "range_layer": layer["range"].values,
-        }
-    )
-    out = out.assign_coords(depth=("range_layer", depth))
-
-    out["dz"] = xr.DataArray(dz)
-    out["mask_ze"] = xr.DataArray(
-        ze_mask.values.astype(bool),
-        dims=(time_dim, "range_layer"),
-    )
-
-    out.attrs.update(
-        dict(
-            **_layer_metadata(
-                z_bottom_m=float(z_bottom_m),
-                z_top_m=float(z_top_m),
-                selection_mode="fixed_layer",
-            ),
-            dz=float(dz),
-            trend_method="ols_legacy",
-            variable_threshold=str(variable_threshold),
-            threshold_value=float(threshold_value),
-            vars=tuple(vars),
-            eps_mode=str(eps_mode),
-            eps_floor_mode=str(eps_floor_mode),
-            q=float(q),
-            min_points_ols=int(min_points_ols),
-            trend_direction="positive means increase while descending from z_top_m to z_bottom_m",
-        )
-    )
-
-    global_eps: dict[str, float] = {}
-    if eps_mode == "global_quantile" or eps_floor_mode == "global_min":
-        for variable_name in vars:
-            global_eps[variable_name] = compute_eps(layer[variable_name].values, q=q)
-
-    times = layer[time_dim].values
-    ntime = times.size
-    nrange = layer.sizes["range"]
-    ze_mask_np = ze_mask.values.astype(bool)
-
-    n_valid = np.sum(ze_mask_np, axis=1).astype(int)
-    out["n_valid"] = xr.DataArray(n_valid, dims=(time_dim,))
-
-    for variable_name in vars:
-        b_arr = np.full(ntime, np.nan, dtype=float)
-        a_arr = np.full(ntime, np.nan, dtype=float)
-        r2_arr = np.full(ntime, np.nan, dtype=float)
-        f_arr = np.full(ntime, np.nan, dtype=float)
-
-        eps_used = np.full(ntime, np.nan, dtype=float)
-        n_fit = np.zeros(ntime, dtype=int)
-        mask_fit = np.zeros((ntime, nrange), dtype=bool)
-
-        values = layer[variable_name].values.astype(float)
-
-        for index in range(ntime):
-            if n_valid[index] < min_points_ols:
-                continue
-
-            mask = (
-                ze_mask_np[index, :]
-                & np.isfinite(values[index, :])
-                & (values[index, :] > 0.0)
-            )
-            nmask = int(np.sum(mask))
-            if nmask < min_points_ols:
-                continue
-
-            if eps_mode == "hourly_quantile":
-                eps_t = compute_eps(values[index, :], q=q)
-            elif eps_mode == "global_quantile":
-                eps_t = global_eps.get(variable_name, np.nan)
-            else:
-                raise ValueError(f"Unsupported eps_mode={eps_mode!r}")
-
-            if not np.isfinite(eps_t) or eps_t <= 0:
-                continue
-
-            if eps_floor_mode == "global_min":
-                eps_g = global_eps.get(variable_name, np.nan)
-                if np.isfinite(eps_g) and eps_g > 0:
-                    eps_t = max(float(eps_t), float(eps_g))
-
-            x = depth[mask]
-            y = np.log(np.maximum(values[index, mask], eps_t))
-
-            b, a, r2 = ols_slope_intercept_r2(x, y)
-            if not (np.isfinite(b) and np.isfinite(a) and np.isfinite(r2)):
-                continue
-
-            b_arr[index] = float(b)
-            a_arr[index] = float(a)
-            r2_arr[index] = float(r2)
-            f_arr[index] = float(np.exp(b * dz))
-
-            mask_fit[index, :] = mask
-            n_fit[index] = nmask
-            eps_used[index] = float(eps_t)
-
-        out[f"b_{variable_name}"] = xr.DataArray(b_arr, dims=(time_dim,))
-        out[f"a_{variable_name}"] = xr.DataArray(a_arr, dims=(time_dim,))
-        out[f"r2_{variable_name}"] = xr.DataArray(r2_arr, dims=(time_dim,))
-        out[f"F_{variable_name}"] = xr.DataArray(f_arr, dims=(time_dim,))
-
-        out[f"eps_{variable_name}"] = xr.DataArray(eps_used, dims=(time_dim,))
-        out[f"n_fit_{variable_name}"] = xr.DataArray(n_fit, dims=(time_dim,))
-        out[f"mask_fit_{variable_name}"] = xr.DataArray(
-            mask_fit,
-            dims=(time_dim, "range_layer"),
-        )
-
-    return out
-
-
 def compute_layer_trend(
     subject: SupportsRainAnalysis,
     *,
@@ -383,88 +205,20 @@ def compute_layer_trend(
     variable_threshold: str = "Ze",
     threshold_value: float = -5.0,
     vars: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-    trend_method: str = "kendall_theilsen",
     tau_zero_tol: float = 0.05,
     min_points_trend: int | None = None,
-    min_points_ols: int | None = None,
-    eps_mode: str = "hourly_quantile",
-    q: float = 0.01,
-    eps_floor_mode: str = "global_min",
 ) -> xr.Dataset:
     """
     Compute layer-wise monotonic trends for selected microphysical variables.
 
-    The default implementation characterises each vertical profile with:
+    The implementation characterises each vertical profile with:
 
     - Kendall's tau for monotonic direction and consistency.
     - Theil-Sen slope for robust magnitude.
-
-    ``trend_method="ols"`` falls back to the legacy OLS implementation for
-    diagnostic comparison.
     """
-    method = trend_method.lower()
     resolved_min_points = _resolve_min_points(
         min_points_trend=min_points_trend,
-        min_points_ols=min_points_ols,
     )
-
-    if method in {"ols", "ols_legacy"}:
-        out = compute_layer_trend_ols(
-            subject,
-            z_bottom_m=z_bottom_m,
-            z_top_m=z_top_m,
-            z_top=z_top,
-            z_base=z_base,
-            time_dim=time_dim,
-            variable_threshold=variable_threshold,
-            threshold_value=threshold_value,
-            vars=vars,
-            eps_mode=eps_mode,
-            q=q,
-            eps_floor_mode=eps_floor_mode,
-            min_points_ols=resolved_min_points,
-        )
-        out.attrs["trend_method"] = "ols"
-        out.attrs["min_points_trend"] = int(resolved_min_points)
-        out.attrs["trend_score_definition"] = "trend_sign * trend_strength = sign(b) * r2"
-        for variable_name in vars:
-            b_values = out[f"b_{variable_name}"].values.astype(float)
-            r2_values = out[f"r2_{variable_name}"].values.astype(float)
-            sign_values = np.zeros(b_values.shape, dtype=int)
-            finite_b = np.isfinite(b_values)
-            sign_values[finite_b & (b_values > 0.0)] = 1
-            sign_values[finite_b & (b_values < 0.0)] = -1
-            strength_values = np.clip(r2_values, 0.0, 1.0)
-            score_values = np.full(b_values.shape, np.nan, dtype=float)
-            finite_score = finite_b & np.isfinite(strength_values)
-            score_values[finite_score] = (
-                sign_values[finite_score] * strength_values[finite_score]
-            )
-
-            out[f"trend_mag_{variable_name}"] = xr.DataArray(
-                b_values.copy(),
-                dims=(time_dim,),
-            )
-            out[f"trend_sign_{variable_name}"] = xr.DataArray(
-                sign_values,
-                dims=(time_dim,),
-            )
-            out[f"trend_strength_{variable_name}"] = xr.DataArray(
-                strength_values,
-                dims=(time_dim,),
-            )
-            out[f"trend_score_{variable_name}"] = xr.DataArray(
-                score_values,
-                dims=(time_dim,),
-            )
-            out[f"trend_p_{variable_name}"] = xr.DataArray(
-                np.full(b_values.shape, np.nan, dtype=float),
-                dims=(time_dim,),
-            )
-        return out
-
-    if method not in {"kendall_theilsen", "kendall-theilsen", "kendall", "tau"}:
-        raise ValueError(f"Unsupported trend_method={trend_method!r}")
 
     if not subject._is_processed():
         raise RuntimeError("MRR-Pro data not processed (raprompro missing).")
@@ -529,9 +283,7 @@ def compute_layer_trend(
             vars=tuple(vars),
             tau_zero_tol=float(tau_zero_tol),
             min_points_trend=int(resolved_min_points),
-            min_points_ols=int(resolved_min_points),
             trend_score_definition="trend_sign * trend_strength = tau outside the zero deadband",
-            legacy_b_definition="For nonparametric trends, b_* aliases ts_* and is diagnostic only.",
             trend_direction="positive means increase while descending from z_top_m to z_bottom_m",
         )
     )
@@ -596,8 +348,12 @@ def compute_layer_trend(
         score_arr = np.full(ntime, np.nan, dtype=float)
         finite_score = np.isfinite(strength_arr)
         score_arr[finite_score] = sign_arr[finite_score] * strength_arr[finite_score]
-        out[f"trend_mag_{variable_name}"] = xr.DataArray(ts_arr.copy(), dims=(time_dim,))
-        out[f"trend_sign_{variable_name}"] = xr.DataArray(sign_arr.copy(), dims=(time_dim,))
+        out[f"trend_mag_{variable_name}"] = xr.DataArray(
+            ts_arr.copy(), dims=(time_dim,)
+        )
+        out[f"trend_sign_{variable_name}"] = xr.DataArray(
+            sign_arr.copy(), dims=(time_dim,)
+        )
         out[f"trend_strength_{variable_name}"] = xr.DataArray(
             strength_arr.copy(),
             dims=(time_dim,),
@@ -613,17 +369,10 @@ def compute_layer_trend(
             dims=(time_dim, "range_layer"),
         )
 
-        legacy_slope = xr.DataArray(ts_arr.copy(), dims=(time_dim,))
-        legacy_slope.attrs["legacy_alias_for"] = f"ts_{variable_name}"
-        legacy_slope.attrs["note"] = (
-            "Legacy alias retained for compatibility. This is not an OLS slope."
-        )
-        out[f"b_{variable_name}"] = legacy_slope
-
     return out
 
 
-def rain_process_analyze(
+def layer_rain_classification(
     subject: SupportsRainAnalysis,
     *,
     period: tuple[datetime, datetime],
@@ -632,19 +381,15 @@ def rain_process_analyze(
     z_top_m: float | None = None,
     k: int,
     ze_th: float = -5.0,
-    trend_method: str = "kendall_theilsen",
     tau_zero_tol: float = 0.05,
     min_points_trend: int | None = None,
-    min_points_ols: int | None = None,
-    eps_q: float = 0.01,
-    rgb_q: float = 0.02,
     vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
 ) -> xr.Dataset:
     """
     Analyse rain-process evolution in one fixed layer over a selected period.
 
     This is the fixed-layer analysis primitive used internally by the public
-    scan workflow. Positive trend/change means increase while descending from
+    sliding workflow. Positive trend/change means increase while descending from
     ``z_top_m`` to ``z_bottom_m``.
 
     The workflow computes method-neutral canonical trend variables used
@@ -656,10 +401,7 @@ def rain_process_analyze(
     - ``trend_score_*``: signed bounded score in ``[-1, 1]`` used by RGB.
     - ``trend_p_*``: p-value when available.
 
-    By default, the underlying diagnostics are Kendall's tau plus Theil-Sen
-    slope. ``trend_method="ols"`` keeps the legacy OLS diagnostics available
-    while still feeding the downstream pipeline through the canonical
-    ``trend_*`` names.
+    The underlying diagnostics are Kendall's tau plus Theil-Sen slope.
     """
     if not subject._is_processed():
         raise RuntimeError("Dataset not preprocessed / raprompro not available.")
@@ -672,7 +414,7 @@ def rain_process_analyze(
         z_bottom_m=z_bottom_m,
         z_top_m=z_top_m,
         layer=layer,
-        caller="rain_process_analyze",
+        caller="layer_rain_classification",
     )
 
     t0, t1 = period
@@ -685,9 +427,7 @@ def rain_process_analyze(
 
     resolved_min_points = _resolve_min_points(
         min_points_trend=min_points_trend,
-        min_points_ols=min_points_ols,
     )
-    method = trend_method.lower()
 
     trends = compute_layer_trend(
         subject,
@@ -696,11 +436,8 @@ def rain_process_analyze(
         variable_threshold="Ze",
         threshold_value=ze_th,
         vars=vars_trend,
-        trend_method=trend_method,
         tau_zero_tol=tau_zero_tol,
         min_points_trend=resolved_min_points,
-        min_points_ols=resolved_min_points,
-        q=eps_q,
     )
 
     trends = trends.sel(time=slice(ds_sub["time"].values[0], ds_sub["time"].values[-1]))
@@ -749,12 +486,9 @@ def rain_process_analyze(
             ),
             k=int(k),
             ze_th=float(ze_th),
-            trend_method="ols" if method in {"ols", "ols_legacy"} else "kendall_theilsen",
+            trend_method="kendall_theilsen",
             tau_zero_tol=float(tau_zero_tol),
             min_points_trend=int(resolved_min_points),
-            min_points_ols=int(resolved_min_points),
-            eps_q=float(eps_q),
-            rgb_q=float(rgb_q),
             vars_trend=tuple(vars_trend),
             rgb_convention=str(
                 f"R={vars_trend[0]}, G={vars_trend[1]}, B={vars_trend[2]}"
@@ -767,7 +501,9 @@ def rain_process_analyze(
         "B": vars_trend[2],
     }
     out.attrs["rgb_method"] = "trend_score"
-    out.attrs["strength_definition"] = "min(trend_strength_Dm, trend_strength_Nw, trend_strength_LWC)"
+    out.attrs[
+        "strength_definition"
+    ] = "min(trend_strength_Dm, trend_strength_Nw, trend_strength_LWC)"
     return out
 
 
@@ -796,7 +532,9 @@ def classify_rain_process(
     del subject
 
     if analysis is None or not isinstance(analysis, xr.Dataset):
-        raise TypeError("analysis must be an xr.Dataset produced by rain_process_analyze.")
+        raise TypeError(
+            "analysis must be an xr.Dataset produced by layer_rain_classification."
+        )
     if "time" not in analysis.coords:
         raise KeyError("analysis must include the 'time' coordinate.")
 
@@ -812,7 +550,9 @@ def classify_rain_process(
 
     if not has_trend_fields:
         if rgb_map != expected:
-            raise ValueError(f"rgb_mapping={rgb_map} but this classifier expects {expected}.")
+            raise ValueError(
+                f"rgb_mapping={rgb_map} but this classifier expects {expected}."
+            )
     elif rgb_map is not None and rgb_map != expected:
         warnings.warn(
             f"rgb_mapping={rgb_map} but canonical classification does not depend on rgb_mapping "
@@ -854,7 +594,9 @@ def classify_rain_process(
                     out[key] = analysis[key]
 
         out.attrs["classification_basis"] = "canonical_trend_sign"
-        out.attrs["strength_definition"] = "min(trend_strength_Dm, trend_strength_Nw, trend_strength_LWC)"
+        out.attrs[
+            "strength_definition"
+        ] = "min(trend_strength_Dm, trend_strength_Nw, trend_strength_LWC)"
         out.attrs["min_tau_strength"] = float(tau_strength_threshold)
         out.attrs["min_strength"] = float(tau_strength_threshold)
         out.attrs["max_tau_pvalue"] = (
@@ -865,7 +607,13 @@ def classify_rain_process(
         )
         out.attrs["tol_center"] = float(analysis.attrs.get("tau_zero_tol", tol_center))
         for variable_name in variable_names:
-            for prefix in ("trend_mag", "trend_sign", "trend_strength", "trend_score", "trend_p"):
+            for prefix in (
+                "trend_mag",
+                "trend_sign",
+                "trend_strength",
+                "trend_score",
+                "trend_p",
+            ):
                 key = f"{prefix}_{variable_name}"
                 if key in analysis:
                     out[key] = analysis[key]
@@ -966,13 +714,10 @@ def classify_rain_process(
         "z_base",
         "selection_mode",
         "k",
-        "rgb_q",
-        "eps_q",
         "ze_th",
         "trend_method",
         "tau_zero_tol",
         "min_points_trend",
-        "min_points_ols",
     ):
         if key in analysis.attrs:
             out.attrs[key] = analysis.attrs[key]
@@ -980,7 +725,9 @@ def classify_rain_process(
     return out
 
 
-def _coords_for_sample_dims(ds: xr.Dataset, sample_dims: tuple[str, ...]) -> dict[str, Any]:
+def _coords_for_sample_dims(
+    ds: xr.Dataset, sample_dims: tuple[str, ...]
+) -> dict[str, Any]:
     coords: dict[str, Any] = {}
     for dim in sample_dims:
         if dim in ds.coords:
@@ -1011,7 +758,9 @@ def _classify_from_microphysical_trends(
     tau_strength_threshold = (
         float(min_tau_strength) if min_tau_strength is not None else float(min_strength)
     )
-    p_value_threshold = float(max_tau_pvalue) if max_tau_pvalue is not None else max_p_value
+    p_value_threshold = (
+        float(max_tau_pvalue) if max_tau_pvalue is not None else max_p_value
+    )
 
     for variable_name in variables:
         for prefix in ("trend_sign", "trend_strength", "trend_p"):
@@ -1089,10 +838,14 @@ def _classify_from_microphysical_trends(
     out["sign_LWC"] = xr.DataArray(sign_b, dims=sample_dims)
 
     out.attrs["classification_basis"] = "canonical_microphysical_trends"
-    out.attrs["strength_definition"] = "min(trend_strength_Dm, trend_strength_Nw, trend_strength_LWC)"
+    out.attrs[
+        "strength_definition"
+    ] = "min(trend_strength_Dm, trend_strength_Nw, trend_strength_LWC)"
     out.attrs["min_tau_strength"] = float(tau_strength_threshold)
     out.attrs["min_strength"] = float(tau_strength_threshold)
-    out.attrs["max_tau_pvalue"] = float(p_value_threshold) if p_value_threshold is not None else None
+    out.attrs["max_tau_pvalue"] = (
+        float(p_value_threshold) if p_value_threshold is not None else None
+    )
     return out
 
 
@@ -1113,7 +866,9 @@ def classify_process_from_features(
     keeping `proc_label_base` intact.
     """
     if process_features is None or not isinstance(process_features, xr.Dataset):
-        raise TypeError("process_features must be an xr.Dataset produced by build_process_features.")
+        raise TypeError(
+            "process_features must be an xr.Dataset produced by build_process_features."
+        )
     if "time" not in process_features.coords:
         raise KeyError("process_features must include the 'time' coordinate.")
 
@@ -1206,7 +961,9 @@ def build_process_dynamics_dataframe(
 
     top_level = ds_event.sel(range=z_top_m, method="nearest")
     bottom_level = ds_event.sel(range=z_bottom_m, method="nearest")
-    layer_mean = ds_event.sel(range=slice(z_bottom_m, z_top_m)).mean("range", skipna=True)
+    layer_mean = ds_event.sel(range=slice(z_bottom_m, z_top_m)).mean(
+        "range", skipna=True
+    )
 
     base = xr.Dataset(coords={"time": analysis["time"].values})
     for source in (analysis, classified, top_level, bottom_level, layer_mean):
@@ -1216,7 +973,9 @@ def build_process_dynamics_dataframe(
                 base[name] = source_aligned[name]
 
     if base.sizes.get("time", 0) == 0:
-        raise ValueError("analysis/classified do not overlap with the processed dataset.")
+        raise ValueError(
+            "analysis/classified do not overlap with the processed dataset."
+        )
 
     index = pd.to_datetime(base["time"].values)
     df = pd.DataFrame(index=index)
@@ -1260,11 +1019,19 @@ def build_process_dynamics_dataframe(
 
     for variable_name in variables:
         if variable_name not in ds_event:
-            raise KeyError(f"Variable '{variable_name}' not found in processed dataset.")
+            raise KeyError(
+                f"Variable '{variable_name}' not found in processed dataset."
+            )
 
-        top_values = top_level[variable_name].sel(time=base["time"]).values.astype(float)
-        bottom_values = bottom_level[variable_name].sel(time=base["time"]).values.astype(float)
-        mean_values = layer_mean[variable_name].sel(time=base["time"]).values.astype(float)
+        top_values = (
+            top_level[variable_name].sel(time=base["time"]).values.astype(float)
+        )
+        bottom_values = (
+            bottom_level[variable_name].sel(time=base["time"]).values.astype(float)
+        )
+        mean_values = (
+            layer_mean[variable_name].sel(time=base["time"]).values.astype(float)
+        )
 
         delta_values = bottom_values - top_values
         delta_pct_values = _safe_relative_change(
@@ -1293,8 +1060,6 @@ def build_process_dynamics_dataframe(
             "trend_strength",
             "trend_score",
             "trend_p",
-            "b",
-            "r2",
         ):
             field = f"{prefix}_{variable_name}"
             if field in base:
@@ -1372,9 +1137,15 @@ def summarize_process_dynamics(
         for metric in metrics:
             values = pd.to_numeric(group[metric], errors="coerce")
             finite = values[np.isfinite(values)]
-            row[f"{metric}_median"] = float(finite.median()) if not finite.empty else np.nan
-            row[f"{metric}_q25"] = float(finite.quantile(0.25)) if not finite.empty else np.nan
-            row[f"{metric}_q75"] = float(finite.quantile(0.75)) if not finite.empty else np.nan
+            row[f"{metric}_median"] = (
+                float(finite.median()) if not finite.empty else np.nan
+            )
+            row[f"{metric}_q25"] = (
+                float(finite.quantile(0.25)) if not finite.empty else np.nan
+            )
+            row[f"{metric}_q75"] = (
+                float(finite.quantile(0.75)) if not finite.empty else np.nan
+            )
             row[f"{metric}_mean"] = float(finite.mean()) if not finite.empty else np.nan
         rows.append(row)
 
@@ -1393,7 +1164,9 @@ def _build_sliding_layer_windows(
     window_thickness_m: float,
     window_step_m: float,
 ) -> list[tuple[float, float]]:
-    finite_ranges = np.sort(np.asarray(range_values, dtype=float)[np.isfinite(range_values)])
+    finite_ranges = np.sort(
+        np.asarray(range_values, dtype=float)[np.isfinite(range_values)]
+    )
     if finite_ranges.size == 0:
         return []
 
@@ -1420,15 +1193,63 @@ def _build_sliding_layer_windows(
     return windows
 
 
-def _detect_process_runs_from_scan(
-    scan_df: pd.DataFrame,
+def _build_range_centered_sliding_windows(
+    range_values: np.ndarray,
+    *,
+    window_thickness_m: float,
+    window_step_m: float,
+    use_native_range: bool,
+) -> list[tuple[float, float, float]]:
+    values = np.sort(np.asarray(range_values, dtype=float))
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return []
+    if window_thickness_m <= 0.0:
+        raise ValueError("window_thickness_m must be positive.")
+    if window_step_m <= 0.0:
+        raise ValueError("window_step_m must be positive.")
+
+    half_thickness = float(window_thickness_m) / 2.0
+    full_window_mask = (values - half_thickness >= float(np.nanmin(values))) & (
+        values + half_thickness <= float(np.nanmax(values))
+    )
+    eligible_centers = values[full_window_mask]
+    if eligible_centers.size == 0:
+        return []
+
+    if use_native_range:
+        centers = eligible_centers
+    else:
+        centers = np.arange(
+            float(eligible_centers[0]),
+            float(eligible_centers[-1]) + float(window_step_m) * 0.5,
+            float(window_step_m),
+            dtype=float,
+        )
+        centers = centers[
+            (centers - half_thickness >= float(np.nanmin(values)))
+            & (centers + half_thickness <= float(np.nanmax(values)))
+        ]
+
+    return [
+        (
+            float(center),
+            float(center - half_thickness),
+            float(center + half_thickness),
+        )
+        for center in centers
+    ]
+
+
+def _detect_process_runs_from_sliding(
+    sliding_df: pd.DataFrame,
     *,
     min_consecutive_profiles: int,
     ignored_labels: set[str] | None = None,
 ) -> pd.DataFrame:
     if min_consecutive_profiles <= 0:
         raise ValueError("min_consecutive_profiles must be positive.")
-    if scan_df.empty:
+    if sliding_df.empty:
         return pd.DataFrame()
 
     ignored = (
@@ -1438,7 +1259,7 @@ def _detect_process_runs_from_scan(
     )
 
     rows: list[dict[str, object]] = []
-    df = scan_df.sort_values(["window_id", "time"]).copy()
+    df = sliding_df.sort_values(["window_id", "time"]).copy()
 
     for window_id, group in df.groupby("window_id", sort=True):
         labels = group["proc_label"].astype(str).to_numpy()
@@ -1464,7 +1285,9 @@ def _detect_process_runs_from_scan(
                 if not np.isfinite(dt_seconds):
                     dt_seconds = np.nan
                 duration_seconds = (
-                    float(run_length * dt_seconds) if np.isfinite(dt_seconds) else np.nan
+                    float(run_length * dt_seconds)
+                    if np.isfinite(dt_seconds)
+                    else np.nan
                 )
 
                 row: dict[str, object] = {
@@ -1478,15 +1301,9 @@ def _detect_process_runs_from_scan(
                 }
 
                 for meta_field in (
-                    "z_min_m",
-                    "z_max_m",
-                    "z_bottom_m",
-                    "z_top_m",
-                    "z_center_m",
-                    "window_thickness_m",
-                    "window_step_m",
-                    "trend_method",
-                    "selection_mode",
+                    "range_bottom_m",
+                    "range_top_m",
+                    "range",
                 ):
                     if meta_field in run.columns:
                         row[meta_field] = run.iloc[0][meta_field]
@@ -1527,12 +1344,81 @@ def _detect_process_runs_from_scan(
     if episodes.empty:
         return episodes
     return episodes.sort_values(
-        by=["start_time", "z_min_m", "proc_label"],
+        by=["start_time", "range_bottom_m", "proc_label"],
         ascending=[True, True, True],
     ).reset_index(drop=True)
 
 
-def build_column_process_scan_dataframe(
+def _sliding_dataframe_to_dataset(sliding_df: pd.DataFrame) -> xr.Dataset:
+    if sliding_df.empty:
+        out = xr.Dataset(coords={"time": [], "range": []})
+        out.attrs = dict(getattr(sliding_df, "attrs", {}))
+        return out
+
+    df = sliding_df.copy()
+    df["time"] = pd.to_datetime(df["time"])
+    df["range"] = pd.to_numeric(df["range"], errors="coerce")
+    df = df[np.isfinite(df["range"])].copy()
+    df = df.sort_values(["time", "range"]).drop_duplicates(
+        subset=["time", "range"],
+        keep="last",
+    )
+
+    coord_columns = (
+        "window_id",
+        "range_bottom_m",
+        "range_top_m",
+        "range_top_gate_m",
+        "range_bottom_gate_m",
+    )
+    range_coord_values: dict[str, np.ndarray] = {}
+    for column in coord_columns:
+        if column not in df.columns:
+            continue
+        values = (
+            df[["range", column]]
+            .drop_duplicates(subset=["range"])
+            .set_index("range")
+            .sort_index()[column]
+        )
+        range_coord_values[column] = values.to_numpy()
+
+    data_columns = [
+        column
+        for column in df.columns
+        if column not in {"time", "range", *coord_columns}
+    ]
+    out = (
+        df.set_index(["time", "range"])[data_columns]
+        .to_xarray()
+        .sortby(["time", "range"])
+    )
+
+    for column, values in range_coord_values.items():
+        if values.size == out.sizes.get("range", 0):
+            out = out.assign_coords({column: ("range", values)})
+
+    out.attrs = dict(getattr(sliding_df, "attrs", {}))
+    out.attrs["range_represents"] = "source_range_coordinate_m"
+    return out
+
+
+def sliding_rain_classification_to_dataframe(
+    sliding: xr.Dataset | pd.DataFrame,
+) -> pd.DataFrame:
+    if isinstance(sliding, pd.DataFrame):
+        return sliding.copy()
+    if not isinstance(sliding, xr.Dataset):
+        raise TypeError("sliding must be an xr.Dataset or pandas DataFrame.")
+    if "time" not in sliding.coords or "range" not in sliding.coords:
+        raise KeyError("sliding dataset must contain 'time' and 'range' coordinates.")
+
+    df = sliding.to_dataframe().reset_index()
+    df.attrs = dict(sliding.attrs)
+    return df
+
+
+def sliding_rain_classification(
     subject: SupportsRainAnalysis,
     *,
     period: tuple[datetime, datetime],
@@ -1541,28 +1427,23 @@ def build_column_process_scan_dataframe(
     window_step_m: float | None | _UnsetType = _UNSET,
     min_tau_strength: float | None | _UnsetType = _UNSET,
     ze_th: float = -5.0,
-    trend_method: str = "kendall_theilsen",
     tau_zero_tol: float = 0.05,
     min_points_trend: int | None = None,
-    min_points_ols: int | None = None,
-    eps_q: float = 0.01,
-    rgb_q: float = 0.02,
     vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
     max_tau_pvalue: float | None = None,
-) -> pd.DataFrame:
+) -> xr.Dataset:
     """
-    Scan the whole processed column with a sliding vertical window.
+    Slide across the whole processed column with a sliding vertical window.
 
     For each window, the function runs the standard rain-process analysis and
-    classification pipeline, then exports a per-sample dataframe. The output is
-    therefore indexed by both time and layer window, and is intended as the
-    input for consecutive-profile episode detection.
+    classification pipeline. The output uses dimensions ``(time, range)``, where
+    ``range`` is the representative centre height of each sliding window.
 
     When the caller does not provide ``window_thickness_m``, ``window_step_m``
     or ``min_tau_strength``, and ``subject`` exposes a ``micro_cfg`` attribute,
     the corresponding values are taken from that configuration.
 
-    ``window_step_m=None`` means "raw resolution": infer the scan step from the
+    ``window_step_m=None`` means "raw resolution": infer the sliding step from the
     native range-grid spacing (median of the range-coordinate differences).
     """
     ds = _resolve_processed_dataset(subject)
@@ -1582,6 +1463,7 @@ def build_column_process_scan_dataframe(
         if window_step_m is not _UNSET
         else getattr(micro_cfg, "window_step_m", 100.0)
     )
+    use_native_range = step_param is None
 
     if step_param is None:
         values = np.asarray(ds["range"].values, dtype=float)
@@ -1599,29 +1481,42 @@ def build_column_process_scan_dataframe(
         else getattr(micro_cfg, "min_tau_strength", 0.10)
     )
 
-    windows = _build_sliding_layer_windows(
+    windows = _build_range_centered_sliding_windows(
         ds["range"].values,
         window_thickness_m=thickness_m,
         window_step_m=step_m,
+        use_native_range=use_native_range,
     )
     if not windows:
-        return pd.DataFrame()
+        empty = xr.Dataset(coords={"time": [], "range": []})
+        empty.attrs = {
+            "period_start": str(
+                np.datetime_as_string(np.datetime64(period[0]), unit="s")
+            ),
+            "period_end": str(
+                np.datetime_as_string(np.datetime64(period[1]), unit="s")
+            ),
+            "window_thickness_m": float(thickness_m),
+            "window_step_m": float(step_m),
+            "trend_method": "kendall_theilsen",
+            "tau_zero_tol": float(tau_zero_tol),
+            "k": int(k),
+            "selection_mode": "sliding",
+            "range_represents": "source_range_coordinate_m",
+        }
+        return empty
 
     frames: list[pd.DataFrame] = []
-    for window_id, (z_min_m, z_max_m) in enumerate(windows):
-        analysis = rain_process_analyze(
+    for window_id, (range_m, range_bottom_m, range_top_m) in enumerate(windows):
+        analysis = layer_rain_classification(
             subject,
             period=period,
-            z_bottom_m=z_min_m,
-            z_top_m=z_max_m,
+            z_bottom_m=range_bottom_m,
+            z_top_m=range_top_m,
             k=k,
             ze_th=ze_th,
-            trend_method=trend_method,
             tau_zero_tol=tau_zero_tol,
             min_points_trend=min_points_trend,
-            min_points_ols=min_points_ols,
-            eps_q=eps_q,
-            rgb_q=rgb_q,
             vars_trend=vars_trend,
         )
         classified = classify_rain_process(
@@ -1641,19 +1536,42 @@ def build_column_process_scan_dataframe(
             variables=vars_trend,
         ).reset_index()
         frame["window_id"] = int(window_id)
-        frame["z_min_m"] = float(z_min_m)
-        frame["z_max_m"] = float(z_max_m)
-        frame["z_bottom_m"] = float(z_min_m)
-        frame["z_top_m"] = float(z_max_m)
-        frame["z_center_m"] = float(0.5 * (z_min_m + z_max_m))
-        frame["window_thickness_m"] = float(thickness_m)
-        frame["window_step_m"] = float(step_m)
-        frame["trend_method"] = str(analysis.attrs.get("trend_method", trend_method))
-        frame["selection_mode"] = "scan"
+        frame["range_bottom_m"] = float(range_bottom_m)
+        frame["range_top_m"] = float(range_top_m)
+        frame["range"] = float(range_m)
+        if "layer_top_range_m" in frame.columns:
+            frame["range_top_gate_m"] = frame["layer_top_range_m"]
+        if "layer_bottom_range_m" in frame.columns:
+            frame["range_bottom_gate_m"] = frame["layer_bottom_range_m"]
+        duplicate_columns = {
+            "minutes",
+            "z_bottom_m",
+            "z_top_m",
+            "z_base_m",
+            "dz_m",
+            "dz_km",
+            "layer_top_range_m",
+            "layer_bottom_range_m",
+            "sign_R",
+            "sign_G",
+            "sign_B",
+        }
+        for variable_name in vars_trend:
+            duplicate_columns.update(
+                {
+                    f"p_{variable_name}",
+                    f"ts_{variable_name}",
+                    f"sign_{variable_name}",
+                    f"strength_{variable_name}",
+                }
+            )
+        frame = frame.drop(
+            columns=[column for column in duplicate_columns if column in frame.columns]
+        )
         frames.append(frame)
 
-    scan_df = pd.concat(frames, ignore_index=True)
-    scan_df.attrs = {
+    sliding_df = pd.concat(frames, ignore_index=True)
+    sliding_df.attrs = {
         "period_start": str(np.datetime_as_string(np.datetime64(period[0]), unit="s")),
         "period_end": str(np.datetime_as_string(np.datetime64(period[1]), unit="s")),
         "window_thickness_m": float(thickness_m),
@@ -1663,17 +1581,19 @@ def build_column_process_scan_dataframe(
             if tau_strength is None
             else _float_from_dynamic(tau_strength, name="min_tau_strength")
         ),
-        "trend_method": str(trend_method),
+        "trend_method": "kendall_theilsen",
         "tau_zero_tol": float(tau_zero_tol),
         "k": int(k),
-        "selection_mode": "scan",
+        "selection_mode": "sliding",
     }
-    return scan_df
+    sliding_ds = _sliding_dataframe_to_dataset(sliding_df)
+    breakpoint()
+    return sliding_ds
 
 
 def build_fused_column_process_dataframe(
     subject: SupportsRainAnalysis,
-    scan_df: pd.DataFrame,
+    sliding_df: pd.DataFrame,
     *,
     min_consecutive: int = 3,
     allowed_processes: tuple[str, ...] | None = None,
@@ -1684,16 +1604,15 @@ def build_fused_column_process_dataframe(
     z_bottom_col: str = "z_bottom",
     variable_threshold: str | None = None,
     threshold_value: float | None = None,
-    trend_method: str | None = None,
     tau_zero_tol: float | None = None,
     min_points_trend: int | None = None,
     vars_trend: tuple[str, str, str] | None = None,
 ) -> pd.DataFrame:
     """
-    Exploratory Option B: fuse vertical scan detections into consolidated layers.
+    Exploratory Option B: fuse vertical sliding detections into consolidated layers.
 
-    The input ``scan_df`` is expected to be the dataframe returned by
-    :func:`build_column_process_scan_dataframe`. For each time step, the
+    The input ``sliding_df`` is expected to be the dataframe returned by
+    :func:`sliding_rain_classification`. For each time step, the
     function searches for *vertically adjacent* runs of the same process label,
     fuses each run into one vertical layer, recomputes the microphysical trends
     on the fused layer using ``subject.raprompro``, and reclassifies the fused
@@ -1702,7 +1621,7 @@ def build_fused_column_process_dataframe(
     Grouping logic (per time step)
     ------------------------------
     - Rows are sorted vertically (top-to-bottom) so adjacent rows represent
-      adjacent scan windows in height.
+      adjacent sliding windows in height.
     - A run is a *strictly adjacent* sequence of rows with the same process
       label. Labels separated by other labels are never grouped.
     - By default, labels in ``exclude_processes`` are ignored and also break
@@ -1714,13 +1633,13 @@ def build_fused_column_process_dataframe(
     Fused-layer recomputation
     -------------------------
     Trends are recomputed on the actual fused layer bounds, not inferred from
-    the individual scan-window rows. For each fused event, the trend is
+    the individual sliding-window rows. For each fused event, the trend is
     recomputed on a single time step by subsetting ``subject.raprompro`` to the
     event time.
 
     Any argument left as ``None`` falls back to ``subject.micro_cfg``:
-    ``variable_threshold``, ``threshold_value``, ``trend_method``,
-    ``tau_zero_tol``, ``min_points_trend``, and ``vars_trend``.
+    ``variable_threshold``, ``threshold_value``, ``tau_zero_tol``,
+    ``min_points_trend``, and ``vars_trend``.
 
     Robustness
     ----------
@@ -1728,35 +1647,44 @@ def build_fused_column_process_dataframe(
     event and populates recomputed fields with NaNs, while recording a short
     error message in ``recompute_error``.
     """
-    if not isinstance(scan_df, pd.DataFrame):
-        raise TypeError("scan_df must be a pandas DataFrame.")
-    if scan_df.empty:
+    if not isinstance(sliding_df, pd.DataFrame):
+        raise TypeError("sliding_df must be a pandas DataFrame.")
+    if sliding_df.empty:
         return pd.DataFrame()
     if min_consecutive <= 0:
         raise ValueError("min_consecutive must be positive.")
 
     ds = getattr(subject, "raprompro", None)
     if ds is None:
-        raise RuntimeError("subject.raprompro is missing; load the processed dataset first.")
+        raise RuntimeError(
+            "subject.raprompro is missing; load the processed dataset first."
+        )
 
     micro_cfg = getattr(subject, "micro_cfg", None)
     if micro_cfg is None:
-        raise RuntimeError("subject.micro_cfg is missing; cannot resolve default parameters.")
+        raise RuntimeError(
+            "subject.micro_cfg is missing; cannot resolve default parameters."
+        )
 
     resolved_variable_threshold = (
-        str(variable_threshold) if variable_threshold is not None else str(micro_cfg.variable_threshold)
+        str(variable_threshold)
+        if variable_threshold is not None
+        else str(micro_cfg.variable_threshold)
     )
     resolved_threshold_value = (
-        float(threshold_value) if threshold_value is not None else float(micro_cfg.threshold_value)
-    )
-    resolved_trend_method = (
-        str(trend_method) if trend_method is not None else str(micro_cfg.trend_method)
+        float(threshold_value)
+        if threshold_value is not None
+        else float(micro_cfg.threshold_value)
     )
     resolved_tau_zero_tol = (
-        float(tau_zero_tol) if tau_zero_tol is not None else float(micro_cfg.tau_zero_tol)
+        float(tau_zero_tol)
+        if tau_zero_tol is not None
+        else float(micro_cfg.tau_zero_tol)
     )
     resolved_min_points_trend = (
-        int(min_points_trend) if min_points_trend is not None else int(micro_cfg.min_points_trend)
+        int(min_points_trend)
+        if min_points_trend is not None
+        else int(micro_cfg.min_points_trend)
     )
     resolved_vars_trend_raw = (
         tuple(vars_trend) if vars_trend is not None else tuple(micro_cfg.vars_trend)
@@ -1771,24 +1699,28 @@ def build_fused_column_process_dataframe(
     exclude_set = set(exclude_processes)
     allowed_set = set(allowed_processes) if allowed_processes is not None else None
 
-    def _resolve_column(df: pd.DataFrame, requested: str, alternatives: tuple[str, ...]) -> str:
+    def _resolve_column(
+        df: pd.DataFrame, requested: str, alternatives: tuple[str, ...]
+    ) -> str:
         if requested in df.columns:
             return requested
         for alt in alternatives:
             if alt in df.columns:
                 return alt
         raise KeyError(
-            f"scan_df is missing column {requested!r}. Available columns: {list(df.columns)!r}"
+            f"sliding_df is missing column {requested!r}. Available columns: {list(df.columns)!r}"
         )
 
-    # `build_column_process_scan_dataframe` uses z_bottom_m/z_top_m; keep the public
+    # `sliding_rain_classification` uses z_bottom_m/z_top_m; keep the public
     # signature generic, but accept the package-native names transparently.
-    resolved_time_col = _resolve_column(scan_df, time_col, ("time",))
-    resolved_process_col = _resolve_column(scan_df, process_col, ("proc_label",))
-    resolved_z_top_col = _resolve_column(scan_df, z_top_col, ("z_top_m", "z_max_m"))
-    resolved_z_bottom_col = _resolve_column(scan_df, z_bottom_col, ("z_bottom_m", "z_min_m"))
+    resolved_time_col = _resolve_column(sliding_df, time_col, ("time",))
+    resolved_process_col = _resolve_column(sliding_df, process_col, ("proc_label",))
+    resolved_z_top_col = _resolve_column(sliding_df, z_top_col, ("z_top_m", "z_max_m"))
+    resolved_z_bottom_col = _resolve_column(
+        sliding_df, z_bottom_col, ("z_bottom_m", "z_min_m")
+    )
 
-    has_window_id = "window_id" in scan_df.columns
+    has_window_id = "window_id" in sliding_df.columns
 
     def _iter_vertical_runs(df_t: pd.DataFrame) -> list[dict[str, object]]:
         if df_t.empty:
@@ -1796,7 +1728,7 @@ def build_fused_column_process_dataframe(
 
         df_sorted = df_t.copy()
         if has_window_id:
-            # In the scan workflow, window_id increases with height.
+            # In the sliding workflow, window_id increases with height.
             df_sorted = df_sorted.sort_values("window_id", ascending=False)
         else:
             # Generic fallback: sort by top height (highest first), then bottom.
@@ -1806,8 +1738,12 @@ def build_fused_column_process_dataframe(
             )
 
         labels = df_sorted[resolved_process_col].astype(str).to_numpy()
-        z_top_vals = pd.to_numeric(df_sorted[resolved_z_top_col], errors="coerce").to_numpy(dtype=float)
-        z_bottom_vals = pd.to_numeric(df_sorted[resolved_z_bottom_col], errors="coerce").to_numpy(dtype=float)
+        z_top_vals = pd.to_numeric(
+            df_sorted[resolved_z_top_col], errors="coerce"
+        ).to_numpy(dtype=float)
+        z_bottom_vals = pd.to_numeric(
+            df_sorted[resolved_z_bottom_col], errors="coerce"
+        ).to_numpy(dtype=float)
 
         runs: list[dict[str, object]] = []
 
@@ -1874,7 +1810,9 @@ def build_fused_column_process_dataframe(
         path: str | Path
         raprompro: xr.Dataset | None
 
-        def __init__(self, template: SupportsRainAnalysis, ds_one_time: xr.Dataset) -> None:
+        def __init__(
+            self, template: SupportsRainAnalysis, ds_one_time: xr.Dataset
+        ) -> None:
             self.path = getattr(template, "path", "")
             self.raprompro = ds_one_time
 
@@ -1904,11 +1842,8 @@ def build_fused_column_process_dataframe(
             variable_threshold=resolved_variable_threshold,
             threshold_value=resolved_threshold_value,
             vars=resolved_vars_trend,
-            trend_method=resolved_trend_method,
             tau_zero_tol=resolved_tau_zero_tol,
             min_points_trend=int(resolved_min_points_trend),
-            min_points_ols=int(resolved_min_points_trend),
-            q=float(getattr(micro_cfg, "eps_q", 0.01)),
         )
 
         classified = classify_rain_process(
@@ -1927,12 +1862,12 @@ def build_fused_column_process_dataframe(
 
         return df_one
 
-    scan_times = pd.to_datetime(scan_df[resolved_time_col])
+    sliding_times = pd.to_datetime(sliding_df[resolved_time_col])
     out_rows: list[pd.DataFrame] = []
 
-    for time_value, df_t in scan_df.assign(**{resolved_time_col: scan_times}).groupby(
-        resolved_time_col, sort=True
-    ):
+    for time_value, df_t in sliding_df.assign(
+        **{resolved_time_col: sliding_times}
+    ).groupby(resolved_time_col, sort=True):
         time_value = pd.Timestamp(time_value)
         runs = _iter_vertical_runs(df_t)
         if not runs:
@@ -1940,7 +1875,9 @@ def build_fused_column_process_dataframe(
 
         for run in runs:
             z_top_fused = _float_from_dynamic(run["z_top_fused"], name="z_top_fused")
-            z_bottom_fused = _float_from_dynamic(run["z_bottom_fused"], name="z_bottom_fused")
+            z_bottom_fused = _float_from_dynamic(
+                run["z_bottom_fused"], name="z_bottom_fused"
+            )
             base_row = {
                 "time": time_value,
                 "run_process_label": run["run_process_label"],
@@ -1993,14 +1930,16 @@ def build_fused_column_process_dataframe(
         return pd.DataFrame()
 
     out = pd.concat(out_rows, ignore_index=True)
-    out.attrs = dict(getattr(scan_df, "attrs", {}))
-    out.attrs["selection_mode"] = "scan_fused_option_b"
+    out.attrs = dict(getattr(sliding_df, "attrs", {}))
+    out.attrs["selection_mode"] = "sliding_fused_option_b"
     out.attrs["min_consecutive"] = int(min_consecutive)
     out.attrs["excluded_processes"] = tuple(exclude_processes)
-    out.attrs["allowed_processes"] = tuple(allowed_processes) if allowed_processes is not None else None
+    out.attrs["allowed_processes"] = (
+        tuple(allowed_processes) if allowed_processes is not None else None
+    )
     out.attrs["variable_threshold"] = resolved_variable_threshold
     out.attrs["threshold_value"] = float(resolved_threshold_value)
-    out.attrs["trend_method"] = resolved_trend_method
+    out.attrs["trend_method"] = "kendall_theilsen"
     out.attrs["tau_zero_tol"] = float(resolved_tau_zero_tol)
     out.attrs["min_points_trend"] = int(resolved_min_points_trend)
     out.attrs["vars_trend"] = tuple(resolved_vars_trend)
@@ -2011,23 +1950,25 @@ def build_fused_column_process_dataframe(
 def detect_column_process_episodes(
     subject: SupportsRainAnalysis,
     *,
-    scan_df: pd.DataFrame,
+    sliding_df: xr.Dataset | pd.DataFrame,
     min_consecutive_profiles: int = 6,
 ) -> pd.DataFrame:
     """
-    Detect temporally persistent process episodes from a column scan dataframe.
+    Detect temporally persistent process episodes from a sliding column dataframe.
 
     Only named microphysical processes are promoted to episodes; isolated
     ``unknown`` or ``steady_or_weak`` samples are ignored. Episodes are defined
     independently in each sliding vertical window.
     """
     del subject
-    if not isinstance(scan_df, pd.DataFrame):
-        raise TypeError("scan_df must be a pandas DataFrame.")
-    episodes = _detect_process_runs_from_scan(
-        scan_df,
+    if isinstance(sliding_df, xr.Dataset):
+        sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
+    if not isinstance(sliding_df, pd.DataFrame):
+        raise TypeError("sliding_df must be an xr.Dataset or pandas DataFrame.")
+    episodes = _detect_process_runs_from_sliding(
+        sliding_df,
         min_consecutive_profiles=int(min_consecutive_profiles),
     )
-    episodes.attrs = dict(getattr(scan_df, "attrs", {}))
+    episodes.attrs = dict(getattr(sliding_df, "attrs", {}))
     episodes.attrs["min_consecutive_profiles"] = int(min_consecutive_profiles)
     return episodes

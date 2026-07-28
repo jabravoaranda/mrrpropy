@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from mrrpropy.hexagram import plot_process_to_hexagram
+from mrrpropy.rain_process_classification.hexagram import plot_process_to_hexagram
 from mrrpropy.plotting.processes import plot_fused_process_quicklook
 from mrrpropy.raw_class import MRRProData
 
@@ -51,7 +51,7 @@ class PlotContext:
         self.mrr.load_raprompro(PRODUCT_PATH)
         self._analysis_fixed = None
         self._classified_fixed = None
-        self._scan_df = None
+        self._sliding_df = None
 
     def close(self) -> None:
         self.mrr.close()
@@ -64,16 +64,13 @@ class PlotContext:
     @property
     def fixed_analysis(self):
         if self._analysis_fixed is None:
-            self._analysis_fixed = self.mrr.rain_process_analyze(
+            self._analysis_fixed = self.mrr.layer_rain_classification(
                 period=PERIOD,
                 k=11,
-                selection_mode="fixed_layer",
                 z_bottom_m=LAYER[0],
                 z_top_m=LAYER[1],
                 ze_th=-5.0,
                 min_points_trend=10,
-                eps_q=0.01,
-                rgb_q=0.02,
                 vars_trend=("Dm", "Nw", "LWC"),
             )
         return self._analysis_fixed
@@ -87,16 +84,16 @@ class PlotContext:
         return self._classified_fixed
 
     @property
-    def scan_df(self) -> pd.DataFrame:
-        if self._scan_df is None:
-            self._scan_df = self.mrr.build_column_process_scan_dataframe(
+    def sliding_df(self) -> pd.DataFrame:
+        if self._sliding_df is None:
+            self._sliding_df = self.mrr.sliding_rain_classification(
                 period=PERIOD,
                 k=11,
                 window_thickness_m=500.0,
                 window_step_m=None,
                 min_tau_strength=0.5,
             )
-        return self._scan_df
+        return self._sliding_df
 
     @property
     def representative_process(self) -> str:
@@ -134,8 +131,8 @@ def _save(fig, output_dir: Path, filename: str) -> Path:
     return path
 
 
-def _fused_df_from_scan(scan_df: pd.DataFrame) -> pd.DataFrame:
-    valid = scan_df.copy()
+def _fused_df_from_sliding(sliding_df: pd.DataFrame) -> pd.DataFrame:
+    valid = sliding_df.copy()
     valid["z_top_m"] = pd.to_numeric(valid["z_top_m"], errors="coerce")
     valid["z_bottom_m"] = pd.to_numeric(valid["z_bottom_m"], errors="coerce")
     valid = valid[valid["z_top_m"].gt(valid["z_bottom_m"])].copy()
@@ -345,35 +342,52 @@ def plot_classified_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
     return _save(fig, output_dir, "plot_classified_processes_on_hexagram.png")
 
 
+<<<<<<< HEAD
 def plot_column_process_scan(ctx: PlotContext, output_dir: Path) -> Path:
     fig, _, _ = ctx.mrr.plot_column_process_scan(
         scan_df=ctx.scan_df,
+=======
+def plot_sliding_column_process(ctx: PlotContext, output_dir: Path) -> Path:
+    fig, _ = ctx.mrr.plot_sliding_column_process(
+        sliding_df=ctx.sliding_df,
+>>>>>>> pr-3
         figsize=(10, 6),
     )
-    return _save(fig, output_dir, "plot_column_process_scan.png")
+    return _save(fig, output_dir, "plot_sliding_column_process.png")
 
 
-def plot_scan_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
+def plot_sliding_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
     selected = sorted(
         {
             label
-            for label in pd.unique(ctx.scan_df["proc_label"].astype(str))
+            for label in pd.unique(ctx.sliding_df["proc_label"].astype(str))
             if label not in {"unknown", "no_data", "steady_or_weak"}
         }
     )[:2]
+<<<<<<< HEAD
     fig, _, _ = ctx.mrr.plot_scan_process_scatter_compare(
         scan_df=ctx.scan_df,
+=======
+    fig, _ = ctx.mrr.plot_sliding_process_scatter_compare(
+        sliding_df=ctx.sliding_df,
+>>>>>>> pr-3
         processes=selected or None,
         show_centroids=True,
         figsize=(10, 8),
     )
-    return _save(fig, output_dir, "plot_scan_process_scatter_compare.png")
+    return _save(fig, output_dir, "plot_sliding_process_scatter_compare.png")
 
 
 def plot_fused_quicklook(ctx: PlotContext, output_dir: Path) -> Path:
+<<<<<<< HEAD
     fused_df = _fused_df_from_scan(ctx.scan_df)
     fig, _, _ = plot_fused_process_quicklook(
         ctx.scan_df,
+=======
+    fused_df = _fused_df_from_sliding(ctx.sliding_df)
+    fig, _ = plot_fused_process_quicklook(
+        ctx.sliding_df,
+>>>>>>> pr-3
         fused_df,
         processes=QUICKLOOK_PROCESSES,
         figsize=(10, 6),
@@ -410,8 +424,8 @@ PLOTS: dict[str, Callable[[PlotContext, Path], Path]] = {
     "plot-layer-hexagram": plot_layer_hexagram,
     "plot-processes-evolution": plot_processes_evolution,
     "plot-classified-hexagram": plot_classified_hexagram,
-    "plot-column-process-scan": plot_column_process_scan,
-    "plot-scan-scatter-compare": plot_scan_scatter_compare,
+    "plot-sliding-column-process": plot_sliding_column_process,
+    "plot-sliding-scatter-compare": plot_sliding_scatter_compare,
     "plot-fused-quicklook": plot_fused_quicklook,
     "plot-hexagram-process": plot_hexagram_process,
 }

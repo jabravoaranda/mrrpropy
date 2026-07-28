@@ -17,7 +17,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, List, Optional, Union
-import warnings
 
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
@@ -30,13 +29,17 @@ import pandas as pd
 import xarray as xr
 from datetime import datetime
 
-from mrrpropy.analysis import process_features as process_feature_analysis
-from mrrpropy.analysis import processes as process_analysis
+from mrrpropy.rain_process_classification import (
+    process_features as process_feature_analysis,
+)
+from mrrpropy.rain_process_classification import (
+    rain_process_algorithm as process_analysis,
+)
 from mrrpropy.plotting import _spectra as spectral_plotting
 from mrrpropy.plotting import processes as process_plotting
 from mrrpropy.plotting import processed as processed_plotting
 from mrrpropy.plotting import raw as raw_plotting
-from mrrpropy.processing import raprompro as raprompro_processing
+from mrrpropy.preprocessing import raprompro as raprompro_processing
 
 DatetimeLike = Union[str, np.datetime64, datetime]
 
@@ -58,6 +61,7 @@ plt.rcParams.update(
     }
 )
 
+
 @dataclass
 class MicrophysicsConfig:
     """
@@ -65,11 +69,11 @@ class MicrophysicsConfig:
 
     Notes
     -----
-    Scan-mode workflows (sliding vertical windows) use ``window_thickness_m`` and
+    Sliding-mode workflows (sliding vertical windows) use ``window_thickness_m`` and
     ``window_step_m`` from this configuration by default when explicit arguments
     are not provided.
 
-    ``window_step_m=None`` means "raw resolution": the scan step is inferred
+    ``window_step_m=None`` means "raw resolution": the sliding step is inferred
     from the native range grid spacing (median of the range-coordinate
     differences).
     """
@@ -78,19 +82,15 @@ class MicrophysicsConfig:
     threshold_value: float = -5.0
     window_thickness_m: float = 500.0
     window_step_m: float | None = None  # None means "use raw vertical resolution"
-    trend_method: str = "kendall_theilsen"
     tau_zero_tol: float = 0.05
     min_points_trend: int = 10
-    min_points_ols: int = 10
     min_tau_strength: float = 0.5
     max_tau_pvalue: float | None = None
-    eps_q: float = 0.01
-    rgb_q: float = 0.02
-    eps_mode: str = "global_quantile"
     tol_center: float = 0.05
     min_strength: float = 0.10
     vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC")
     k: int = 11  # default hex resolution
+
 
 @dataclass
 class PlotConfig:
@@ -112,6 +112,7 @@ class PlotConfig:
     show_path_line: bool = True
     linewidth: float = 0.8
     dpi: int = 200
+
 
 @dataclass
 class MRRProData:
@@ -142,7 +143,6 @@ class MRRProData:
     # Constructors
     # -------------------------
     @classmethod
-
     def from_file(cls, path: str | Path) -> "MRRProData":
         """
         Open a raw MRR-PRO NetCDF file and wrap it in :class:`MRRProData`.
@@ -165,13 +165,11 @@ class MRRProData:
     # Basic Properties
     # -------------------------
     @property
-
     def time(self) -> pd.DatetimeIndex:
         """Time index as pandas DatetimeIndex."""
         return self.ds["time"].to_index()
 
     @property
-
     def range(self) -> np.ndarray:
         """
         Range of bins (m above radar, typically).
@@ -179,17 +177,14 @@ class MRRProData:
         return self.ds["range"].values
 
     @property
-
     def n_time(self) -> int:
         return self.ds.sizes["time"]
 
     @property
-
     def n_range(self) -> int:
         return self.ds.sizes["range"]
 
     @property
-
     def variables(self) -> List[str]:
         """List of data variables (Za, Z, Ze, RR, VEL, etc.)."""
         return list(self.ds.data_vars)
@@ -496,6 +491,7 @@ class MRRProData:
             spectrum_var=spectrum_var,
             range_limits=range_limits,
         )
+
     # -------------------------
     # Quick Plot (optional)
     # -------------------------
@@ -537,6 +533,7 @@ class MRRProData:
             vmax=vmax,
             **kwargs,
         )
+
     # -------------------------------------------------------------------------
     # Plotting
     # -------------------------------------------------------------------------
@@ -1086,10 +1083,10 @@ class MRRProData:
             **kwargs,
         )
 
-    def plot_scan_process_scatter_compare(
+    def plot_sliding_process_scatter_compare(
         self,
         *,
-        scan_df: pd.DataFrame,
+        sliding_df: pd.DataFrame,
         processes: list[str],
         x: str = "Dm_layer_mean",
         y: str = "Nw_layer_mean",
@@ -1104,15 +1101,15 @@ class MRRProData:
         **kwargs: Any,
     ) -> tuple[Figure, Axes, Path | None]:
         """
-        Compare several classified scan processes in a shared microphysical scatter.
+        Compare several classified sliding processes in a shared microphysical scatter.
 
-        Each point corresponds to one ``time x window`` sample from ``scan_df``.
+        Each point corresponds to one ``time x window`` sample from ``sliding_df``.
         Marker shape encodes the process, while color encodes the selected
         numeric variable.
         """
-        return process_plotting.plot_scan_process_scatter_compare(
+        return process_plotting.plot_sliding_process_scatter_compare(
             self,
-            scan_df=scan_df,
+            sliding_df=sliding_df,
             processes=processes,
             x=x,
             y=y,
@@ -1180,54 +1177,6 @@ class MRRProData:
             **kwargs,
         )
 
-    def compute_layer_trend_ols(
-        self,
-        *,
-        z_bottom_m: float | None = None,
-        z_top_m: float | None = None,
-        z_top: float | None = None,
-        z_base: float | None = None,
-        time_dim: str = "time",
-        variable_threshold: str = "Ze",
-        threshold_value: float = -5.0,
-        vars: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-        eps_mode: str = "hourly_quantile",
-        q: float = 0.01,
-        eps_floor_mode: str = "global_min",
-        min_points_ols: int = 10,
-    ) -> xr.Dataset:
-        """
-        Compute layer-wise legacy OLS trends of selected microphysical variables.
-
-        For each time step, the method fits ``ln(X)`` versus depth from the top
-        of the selected layer, after thresholding on a reflectivity field such as
-        ``Ze``. It returns slopes, intercepts, fit quality and the masks actually
-        used in each regression.
-
-        The output is kept for backward compatibility and diagnostic comparison.
-        The recommended microphysical method is :meth:`compute_layer_trend`,
-        which uses Kendall's tau plus Theil-Sen slope.
-
-        Use ``z_bottom_m`` and ``z_top_m`` to define the physical layer bounds.
-        Legacy ``z_top`` / ``z_base`` aliases are still accepted for
-        compatibility.
-        """
-        return process_analysis.compute_layer_trend_ols(
-            self,
-            z_bottom_m=z_bottom_m,
-            z_top_m=z_top_m,
-            z_top=z_top,
-            z_base=z_base,
-            time_dim=time_dim,
-            variable_threshold=variable_threshold,
-            threshold_value=threshold_value,
-            vars=vars,
-            eps_mode=eps_mode,
-            q=q,
-            eps_floor_mode=eps_floor_mode,
-            min_points_ols=min_points_ols,
-        )
-
     def compute_layer_trend(
         self,
         *,
@@ -1239,13 +1188,8 @@ class MRRProData:
         variable_threshold: str = "Ze",
         threshold_value: float = -5.0,
         vars: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-        trend_method: str = "kendall_theilsen",
         tau_zero_tol: float = 0.05,
         min_points_trend: int | None = None,
-        min_points_ols: int | None = None,
-        eps_mode: str = "hourly_quantile",
-        q: float = 0.01,
-        eps_floor_mode: str = "global_min",
     ) -> xr.Dataset:
         """
         Compute layer-wise microphysical trends.
@@ -1255,7 +1199,6 @@ class MRRProData:
         ``trend_score_*`` and ``trend_p_*``. By default, the underlying trend
         summary is non-parametric: Kendall's tau captures monotonic direction
         and consistency, while Theil-Sen slope captures robust magnitude.
-        ``trend_method="ols"`` keeps the legacy fit available for comparison.
 
         The fixed layer is defined with ``z_bottom_m`` and ``z_top_m`` in
         meters, with positive change meaning increase while descending from
@@ -1271,48 +1214,25 @@ class MRRProData:
             variable_threshold=variable_threshold,
             threshold_value=threshold_value,
             vars=vars,
-            trend_method=trend_method,
             tau_zero_tol=tau_zero_tol,
             min_points_trend=min_points_trend,
-            min_points_ols=min_points_ols,
-            eps_mode=eps_mode,
-            q=q,
-            eps_floor_mode=eps_floor_mode,
         )
 
-    def rain_process_analyze(
+    def layer_rain_classification(
         self,
         *,
         period: tuple[datetime, datetime],
         k: int,
-        selection_mode: str = "scan",
-        window_thickness_m: float | None = None,
-        window_step_m: float | None | _UnsetType = _UNSET,
         z_bottom_m: float | None = None,
         z_top_m: float | None = None,
         layer: tuple[float, float] | None = None,
         ze_th: float = -5.0,
-        trend_method: str = "kendall_theilsen",
         tau_zero_tol: float = 0.05,
         min_points_trend: int | None = None,
-        min_points_ols: int | None = None,
-        eps_q: float = 0.01,
-        rgb_q: float = 0.02,
         vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
-        min_tau_strength: float | None | _UnsetType = _UNSET,
-        max_tau_pvalue: float | None = None,
-    ) -> xr.Dataset | pd.DataFrame:
+    ) -> xr.Dataset:
         """
-        Analyse rain-process evolution with a scan-first public workflow.
-
-        ``selection_mode="scan"`` is the default public interface and returns a
-        dataframe built from sliding windows defined by ``window_thickness_m``
-        and ``window_step_m``.
-
-        ``selection_mode="fixed_layer"`` keeps the explicit-layer workflow for
-        advanced use and returns the fixed-layer analysis dataset. In that mode,
-        use ``z_bottom_m`` and ``z_top_m`` to define the layer. Legacy
-        ``layer=(z_bottom_m, z_top_m)`` remains supported with a warning.
+        Analyse rain-process evolution in one fixed layer.
 
         The workflow is:
 
@@ -1320,79 +1240,16 @@ class MRRProData:
         2. map those diagnostics into RGB space,
         3. project the RGB samples onto the package hexagram grid.
 
-        The pipeline consumes method-neutral canonical trend variables, so the
-        downstream RGB and classification steps do not depend on whether the
-        diagnostics came from Kendall/Theil-Sen or from the legacy OLS method.
+        The pipeline consumes canonical Kendall/Theil-Sen trend variables.
 
         Returns
         -------
-        xr.Dataset | pd.DataFrame
-            Scan mode returns the column-scan dataframe. Fixed-layer mode
-            returns the analysis dataset containing the trend diagnostics, RGB
-            channels, elapsed minutes and the hexagram coordinates used
-            downstream for plotting and classification.
-
-        Notes
-        -----
-        In scan mode, window geometry and the tau-strength threshold default to
-        :attr:`micro_cfg` unless overridden by explicit arguments.
-
-        ``window_step_m=None`` means "raw resolution": use the native range grid
-        spacing (median of the range-coordinate differences).
+        xr.Dataset
+            Analysis dataset containing the trend diagnostics, RGB channels,
+            elapsed minutes and the hexagram coordinates used downstream for
+            plotting and classification.
         """
-        mode = str(selection_mode).strip().lower()
-        if mode not in {"scan", "fixed_layer"}:
-            raise ValueError("selection_mode must be either 'scan' or 'fixed_layer'.")
-
-        has_fixed_layer_args = (
-            layer is not None or z_bottom_m is not None or z_top_m is not None
-        )
-        if mode == "scan" and has_fixed_layer_args:
-            warnings.warn(
-                "Fixed-layer arguments were provided to rain_process_analyze(). "
-                "Running in selection_mode='fixed_layer'. For the default "
-                "public workflow, prefer scan mode with `window_thickness_m` "
-                "and `window_step_m`.",
-                FutureWarning,
-                stacklevel=2,
-            )
-            mode = "fixed_layer"
-
-        if mode == "scan":
-            thickness_m = (
-                float(window_thickness_m)
-                if window_thickness_m is not None
-                else float(self.micro_cfg.window_thickness_m)
-            )
-            step_m = (
-                window_step_m
-                if window_step_m is not _UNSET
-                else self.micro_cfg.window_step_m
-            )
-            tau_strength = (
-                min_tau_strength
-                if min_tau_strength is not _UNSET
-                else self.micro_cfg.min_tau_strength
-            )
-            return process_analysis.build_column_process_scan_dataframe(
-                self,
-                period=period,
-                k=k,
-                window_thickness_m=thickness_m,
-                window_step_m=step_m,
-                min_tau_strength=tau_strength,
-                ze_th=ze_th,
-                trend_method=trend_method,
-                tau_zero_tol=tau_zero_tol,
-                min_points_trend=min_points_trend,
-                min_points_ols=min_points_ols,
-                eps_q=eps_q,
-                rgb_q=rgb_q,
-                vars_trend=vars_trend,
-                max_tau_pvalue=max_tau_pvalue,
-            )
-
-        return process_analysis.rain_process_analyze(
+        return process_analysis.layer_rain_classification(
             self,
             period=period,
             z_bottom_m=z_bottom_m,
@@ -1400,12 +1257,8 @@ class MRRProData:
             layer=layer,
             k=k,
             ze_th=ze_th,
-            trend_method=trend_method,
             tau_zero_tol=tau_zero_tol,
             min_points_trend=min_points_trend,
-            min_points_ols=min_points_ols,
-            eps_q=eps_q,
-            rgb_q=rgb_q,
             vars_trend=vars_trend,
         )
 
@@ -1420,7 +1273,7 @@ class MRRProData:
     ) -> tuple[Figure, Axes, Path | None]:
         """
         SOLO plotting: dibuja el hexagrama base (RGB) y superpone la trayectoria temporal (puntos)
-        usando el resultado precomputado `analysis` (salida de rain_process_analyze).
+        usando el resultado precomputado `analysis` (salida de layer_rain_classification).
 
         Requiere en `analysis`:
         - hex_x, hex_y (coords en rejilla del hexagrama)
@@ -1431,7 +1284,7 @@ class MRRProData:
         Parameters
         ----------
         analysis : xr.Dataset
-            Resultado de rain_process_analyze(...)
+            Resultado de layer_rain_classification(...)
         k : int
             Resolución del hexagrama (debe coincidir con la usada en el análisis para que la LUT cuadre).
         use_snapped_colors : bool
@@ -1461,7 +1314,7 @@ class MRRProData:
         Classify each time sample into a rain-process category.
 
         The method expects the RGB mapping created by
-        :meth:`rain_process_analyze`, with the convention ``R -> Dm``,
+        :meth:`layer_rain_classification`, with the convention ``R -> Dm``,
         ``G -> Nw`` and ``B -> LWC``. When canonical trend diagnostics are
         present, classification uses ``trend_sign_*`` and ``trend_strength_*``
         independently of the underlying trend method. RGB-centre classification
@@ -1506,11 +1359,15 @@ class MRRProData:
         """
         Build Phase A `process_features` from a dataset.
 
-        In scan mode, ``window_thickness_m`` and ``window_step_m`` default to
+        In sliding mode, ``window_thickness_m`` and ``window_step_m`` default to
         :attr:`micro_cfg` when not explicitly provided. ``window_step_m=None``
         means "raw resolution" (native range-grid spacing).
         """
-        ds_in = ds if ds is not None else (self.raprompro if self.raprompro is not None else self.ds)
+        ds_in = (
+            ds
+            if ds is not None
+            else (self.raprompro if self.raprompro is not None else self.ds)
+        )
         return process_feature_analysis.build_process_features(
             ds_in,
             mode=mode,
@@ -1582,7 +1439,7 @@ class MRRProData:
         -----
         - Process codes A, B, C... are shown on the y-axis of panel (a).
         - Their meaning is shown in a figure legend below the panels.
-        - If a process exists in mrrpropy.hexagram.PROCESS_SIGNATURES, its signature is
+        - If a process exists in mrrpropy.rain_process_classification.hexagram.PROCESS_SIGNATURES, its signature is
         appended in the legend.
         - Colorbars live in fixed GridSpec columns, so subplot widths remain aligned.
         - The function does not classify anything; it only visualizes
@@ -1639,7 +1496,7 @@ class MRRProData:
             variables=variables,
         )
 
-    def build_column_process_scan_dataframe(
+    def sliding_rain_classification(
         self,
         *,
         period: tuple[datetime, datetime],
@@ -1648,25 +1505,20 @@ class MRRProData:
         window_step_m: float | None | _UnsetType = _UNSET,
         min_tau_strength: float | None | _UnsetType = _UNSET,
         ze_th: float = -5.0,
-        trend_method: str = "kendall_theilsen",
         tau_zero_tol: float = 0.05,
         min_points_trend: int | None = None,
-        min_points_ols: int | None = None,
-        eps_q: float = 0.01,
-        rgb_q: float = 0.02,
         vars_trend: tuple[str, str, str] = ("Dm", "Nw", "LWC"),
         max_tau_pvalue: float | None = None,
     ) -> pd.DataFrame:
         """
-        Scan the whole column with a sliding vertical window.
+        Slide across the whole column with a sliding vertical window.
 
         By default, ``window_thickness_m``, ``window_step_m`` and
         ``min_tau_strength`` are taken from :attr:`micro_cfg` unless overridden
         by explicit arguments. ``window_step_m=None`` means "raw resolution"
         (native range-grid spacing).
 
-        The output dataframe contains one row per ``time × window`` and is the
-        recommended input for :meth:`detect_column_process_episodes`.
+        The output dataset uses dimensions ``(time, range)``.
         """
         thickness_m = (
             float(window_thickness_m)
@@ -1683,7 +1535,7 @@ class MRRProData:
             if min_tau_strength is not _UNSET
             else self.micro_cfg.min_tau_strength
         )
-        return process_analysis.build_column_process_scan_dataframe(
+        return process_analysis.sliding_rain_classification(
             self,
             period=period,
             k=k,
@@ -1691,12 +1543,8 @@ class MRRProData:
             window_step_m=step_m,
             min_tau_strength=tau_strength,
             ze_th=ze_th,
-            trend_method=trend_method,
             tau_zero_tol=tau_zero_tol,
             min_points_trend=min_points_trend,
-            min_points_ols=min_points_ols,
-            eps_q=eps_q,
-            rgb_q=rgb_q,
             vars_trend=vars_trend,
             max_tau_pvalue=max_tau_pvalue,
         )
@@ -1704,18 +1552,18 @@ class MRRProData:
     def detect_column_process_episodes(
         self,
         *,
-        scan_df: pd.DataFrame,
+        sliding_df: xr.Dataset | pd.DataFrame,
         min_consecutive_profiles: int = 6,
     ) -> pd.DataFrame:
         """
-        Detect persistent process episodes from a column scan dataframe.
+        Detect persistent process episodes from a sliding column dataframe.
 
         Episodes are defined independently in each sliding window and require a
         minimum number of consecutive profiles with the same process label.
         """
         return process_analysis.detect_column_process_episodes(
             self,
-            scan_df=scan_df,
+            sliding_df=sliding_df,
             min_consecutive_profiles=min_consecutive_profiles,
         )
 
@@ -1761,31 +1609,24 @@ class MRRProData:
             **kwargs,
         )
 
-    def plot_column_process_scan(
+    def plot_sliding_column_process(
         self,
         *,
-        scan_df: pd.DataFrame,
+        sliding_df: xr.Dataset | pd.DataFrame,
         processes: list[str] | None = None,
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs,
     ) -> tuple[Figure, Axes, Path | None]:
         """
-        Plot a time-height curtain of process labels from a whole-column scan.
+        Plot a time-height curtain of process labels from a whole-sliding column.
 
         The input is the dataframe returned by
-        :meth:`build_column_process_scan_dataframe`.
-
-        Common marker options:
-        - ``marker_mode="process"`` uses one marker per process label from
-          ``mrrpropy.processes.PROCESS_MARKERS``.
-        - ``marker_mode="square"`` uses square markers for every process label.
-        - ``marker_mode="single"`` uses the value passed in ``marker`` for every
-          process label.
+        :meth:`sliding_rain_classification`.
         """
-        return process_plotting.plot_column_process_scan(
+        return process_plotting.plot_sliding_column_process(
             self,
-            scan_df=scan_df,
+            sliding_df=sliding_df,
             processes=processes,
             savefig=savefig,
             output_dir=output_dir,

@@ -17,39 +17,37 @@ pytestmark = [pytest.mark.slow, pytest.mark.plot, pytest.mark.integration]
 
 WINDOW_THICKNESS_M = 500.0
 WINDOW_STEP_M = (
-    None  # Use the raw window step from the scan, which is typically around 100 m
+    None  # Use the raw window step from the sliding, which is typically around 100 m
 )
 MIN_TAU_STRENGTH = 0.5
 
 
 @pytest.fixture(scope="session")
 def analysis(raprompro_subset_10min_loaded_mrr):
-    return raprompro_subset_10min_loaded_mrr.rain_process_analyze(
+    return raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(datetime(2025, 10, 29, 19, 23, 0), datetime(2025, 10, 29, 19, 33, 0)),
         k=11,
-        selection_mode="scan",
         window_thickness_m=WINDOW_THICKNESS_M,
         window_step_m=WINDOW_STEP_M,
         min_tau_strength=MIN_TAU_STRENGTH,
         ze_th=-5.0,
         min_points_trend=10,
-        eps_q=0.01,
-        rgb_q=0.02,
         vars_trend=("Dm", "Nw", "LWC"),
     )
 
 
 @pytest.fixture(scope="session")
 def classified(raprompro_subset_10min_loaded_mrr, analysis):
-    return raprompro_subset_10min_loaded_mrr.classify_rain_process(analysis=analysis)
+    return analysis
 
 
-def _scan_artifact_dir(artifact_dir: Path) -> Path:
+def _sliding_artifact_dir(artifact_dir: Path) -> Path:
     path = artifact_dir
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
+<<<<<<< HEAD:tests/rain_processes/test_process_scan_plots.py
 def test_plot_column_process_scan_marker_mode_square():
     subject = SimpleNamespace(
         plot_cfg=SimpleNamespace(dpi=100, figsize_profiles=(6, 4)),
@@ -96,6 +94,11 @@ def test_plot_column_process_scan_marker_mode_square():
 def test_plot_column_process_scan(raprompro_subset_10min_loaded_mrr, artifact_dir):
     output_dir = _scan_artifact_dir(artifact_dir)
     scan_df = raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+=======
+def test_plot_sliding_column_process(raprompro_subset_10min_loaded_mrr, artifact_dir):
+    output_dir = _sliding_artifact_dir(artifact_dir)
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
+>>>>>>> pr-3:tests/rain_processes/test_process_sliding_plots.py
         period=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -106,8 +109,13 @@ def test_plot_column_process_scan(raprompro_subset_10min_loaded_mrr, artifact_di
         min_tau_strength=MIN_TAU_STRENGTH,
     )
 
+<<<<<<< HEAD:tests/rain_processes/test_process_scan_plots.py
     fig, _, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=scan_df,
+=======
+    fig, path = raprompro_subset_10min_loaded_mrr.plot_sliding_column_process(
+        sliding_df=sliding_df,
+>>>>>>> pr-3:tests/rain_processes/test_process_sliding_plots.py
         savefig=True,
         output_dir=output_dir,
         figsize=(10, 6),
@@ -122,11 +130,11 @@ def test_plot_column_process_scan(raprompro_subset_10min_loaded_mrr, artifact_di
     plt.close(fig)
 
 
-def test_plot_column_process_scan_selected_processes(
+def test_plot_sliding_column_process_selected_processes(
     raprompro_subset_10min_loaded_mrr, artifact_dir
 ):
-    output_dir = _scan_artifact_dir(artifact_dir)
-    scan_df = raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+    output_dir = _sliding_artifact_dir(artifact_dir)
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -138,29 +146,34 @@ def test_plot_column_process_scan_selected_processes(
     )
     all_expected = {
         label
-        for label in pd.unique(scan_df["proc_label"].astype(str))
+        for label in pd.unique(sliding_df["proc_label"].astype(str))
         if label not in {"unknown", "no_data"}
     }
     selected_processes = sorted(
         {
             label
-            for label in pd.unique(scan_df["proc_label"].astype(str))
+            for label in pd.unique(sliding_df["proc_label"].astype(str))
             if label not in {"unknown", "no_data", "steady_or_weak"}
         }
     )
     if not selected_processes:
         pytest.skip("No identified processes are available in this fixture.")
 
+<<<<<<< HEAD:tests/rain_processes/test_process_scan_plots.py
     fig_all, _, _ = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=scan_df,
+=======
+    fig_all, _ = raprompro_subset_10min_loaded_mrr.plot_sliding_column_process(
+        sliding_df=sliding_df,
+>>>>>>> pr-3:tests/rain_processes/test_process_sliding_plots.py
         figsize=(10, 6),
     )
     (
         fig_selected,
         ax_selected,
         path_selected,
-    ) = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
-        scan_df=scan_df,
+    ) = raprompro_subset_10min_loaded_mrr.plot_sliding_column_process(
+        sliding_df=sliding_df,
         processes=selected_processes + ["steady_or_weakk"],
         savefig=True,
         output_dir=output_dir,
@@ -185,11 +198,11 @@ def test_plot_column_process_scan_selected_processes(
     plt.close(fig_selected)
 
 
-def test_plot_column_process_scan_hexagram_colors(
+def test_plot_sliding_column_process_hexagram_colors(
     raprompro_subset_10min_loaded_mrr, artifact_dir
 ):
-    output_dir = _scan_artifact_dir(artifact_dir)
-    scan_df = raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+    output_dir = _sliding_artifact_dir(artifact_dir)
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -200,8 +213,13 @@ def test_plot_column_process_scan_hexagram_colors(
         min_tau_strength=MIN_TAU_STRENGTH,
     )
 
+<<<<<<< HEAD:tests/rain_processes/test_process_scan_plots.py
     fig, _, path = raprompro_subset_10min_loaded_mrr.plot_column_process_scan(
         scan_df=scan_df,
+=======
+    fig, path = raprompro_subset_10min_loaded_mrr.plot_sliding_column_process(
+        sliding_df=sliding_df,
+>>>>>>> pr-3:tests/rain_processes/test_process_sliding_plots.py
         color_mode="hexagram",
         processes=[
             "breakup",
@@ -226,11 +244,11 @@ def test_plot_column_process_scan_hexagram_colors(
     plt.close(fig)
 
 
-def test_plot_scan_process_scatter_compare(
+def test_plot_sliding_process_scatter_compare(
     raprompro_subset_10min_loaded_mrr, artifact_dir
 ):
-    output_dir = _scan_artifact_dir(artifact_dir)
-    scan_df = raprompro_subset_10min_loaded_mrr.build_column_process_scan_dataframe(
+    output_dir = _sliding_artifact_dir(artifact_dir)
+    sliding_df = raprompro_subset_10min_loaded_mrr.sliding_rain_classification(
         period=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -243,15 +261,20 @@ def test_plot_scan_process_scatter_compare(
     selected_processes = sorted(
         {
             label
-            for label in pd.unique(scan_df["proc_label"].astype(str))
+            for label in pd.unique(sliding_df["proc_label"].astype(str))
             if label not in {"unknown", "no_data", "steady_or_weak"}
         }
     )[:2]
     if len(selected_processes) < 1:
-        pytest.skip("No identified scan processes are available in this fixture.")
+        pytest.skip("No identified sliding processes are available in this fixture.")
 
+<<<<<<< HEAD:tests/rain_processes/test_process_scan_plots.py
     fig, _, path = raprompro_subset_10min_loaded_mrr.plot_scan_process_scatter_compare(
         scan_df=scan_df,
+=======
+    fig, path = raprompro_subset_10min_loaded_mrr.plot_sliding_process_scatter_compare(
+        sliding_df=sliding_df,
+>>>>>>> pr-3:tests/rain_processes/test_process_sliding_plots.py
         processes=selected_processes,
         show_centroids=True,
         savefig=True,
