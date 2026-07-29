@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 import matplotlib.dates as mdates
+from matplotlib.collections import PatchCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from matplotlib import pyplot as plt
@@ -796,6 +797,7 @@ def plot_rain_process_in_layer_hexagram(
     markersize = kwargs.get("markersize", pcfg.markersize)
     dpi = kwargs.get("dpi", pcfg.dpi)
     alpha = kwargs.get("alpha", pcfg.alpha_points)
+    use_hexbin = bool(kwargs.get("use_hexbin", False))
 
     if analysis is None or not isinstance(analysis, xr.Dataset):
         raise TypeError(
@@ -854,16 +856,31 @@ def plot_rain_process_in_layer_hexagram(
 
     scatter = None
     if np.any(ok):
-        scatter = ax.scatter(
-            hx[ok],
-            hy[ok],
-            s=markersize,
-            c=minutes[ok],
-            alpha=alpha,
-            cmap=kwargs.get("cmap", "viridis"),
-            edgecolors=kwargs.get("edgecolors", "black"),
-            linewidths=kwargs.get("linewidths", 0.1),
-        )
+        if use_hexbin:
+            scatter = ax.hexbin(
+                hx[ok],
+                hy[ok],
+                C=minutes[ok],
+                gridsize=kwargs.get("hexbin_gridsize", max(nx, ny)),
+                extent=(-0.5, nx - 0.5, -0.5, ny - 0.5),
+                reduce_C_function=np.nanmean,
+                mincnt=1,
+                cmap=kwargs.get("cmap", "viridis"),
+                alpha=alpha,
+                edgecolors=kwargs.get("edgecolors", "black"),
+                linewidths=kwargs.get("linewidths", 0.1),
+            )
+        else:
+            scatter = ax.scatter(
+                hx[ok],
+                hy[ok],
+                s=markersize,
+                c=minutes[ok],
+                alpha=alpha,
+                cmap=kwargs.get("cmap", "viridis"),
+                edgecolors=kwargs.get("edgecolors", "black"),
+                linewidths=kwargs.get("linewidths", 0.1),
+            )
 
     z_bottom_m, z_top_m = _layer_bounds_from_attrs(analysis.attrs)
     selection_mode = str(analysis.attrs.get("selection_mode", "fixed_layer"))
@@ -881,6 +898,7 @@ def plot_rain_process_in_layer_hexagram(
     ax.set_ylabel("hex_y (índice rejilla)")
     ax.set_xlim(-0.5, nx - 0.5)
     ax.set_ylim(-0.5, ny - 0.5)
+    ax.set_aspect("equal")
     ax.grid(False)
 
     if scatter is not None:
@@ -1133,11 +1151,18 @@ def plot_sliding_column_process(
     gaussian_seed = kwargs.get("gaussian_seed", 0)
     contour_top_n = int(kwargs.get("contour_top_n", 3))
     contour_event_count = int(kwargs.get("contour_event_count", 50))
+    contour_region_scale = float(kwargs.get("contour_region_scale", 3.0))
     contour_bins = kwargs.get("contour_bins", (180, 120))
     contour_sigma = float(kwargs.get("contour_sigma", 2.0))
     contour_background = bool(kwargs.get("contour_background", True))
+    target_ax = kwargs.get("ax")
 
     sliding_attrs = dict(getattr(sliding_df, "attrs", {}))
+    default_event_min_intensity = sliding_attrs.get("min_tau_strength", 0.0)
+    event_min_intensity = float(
+        kwargs.get("event_min_intensity", default_event_min_intensity)
+    )
+    event_vmin = float(kwargs.get("event_vmin", event_min_intensity))
     if isinstance(sliding_df, xr.Dataset):
         sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
     if not isinstance(sliding_df, pd.DataFrame):
@@ -1168,11 +1193,15 @@ def plot_sliding_column_process(
         raise ValueError("gaussian_points must be >= 1.")
     if color_mode == "contour" and (contour_top_n < 1 or contour_event_count < 1):
         raise ValueError("contour_top_n and contour_event_count must be >= 1.")
+    if color_mode == "contour" and contour_region_scale <= 0.0:
+        raise ValueError("contour_region_scale must be > 0.")
 
     process_colors = kwargs.get(
         "process_colors",
         {
             "breakup": "#12af54",
+            "breakup_gain": "#13d7d7",
+            "breakup_loss": "#24ca24",
             "growth_depletion": "#1b9e77",
             "growth_depletion_gain": "#f808d0",
             "growth_depletion_loss": "#ff0000",
@@ -1225,6 +1254,7 @@ def plot_sliding_column_process(
             )
 
     event_intensity: np.ndarray | None = None
+    event_plot_mask: np.ndarray | None = None
     if color_mode == "event":
         process_name = str(event_process)
         signatures = PROCESS_SIGNATURES.get(process_name)
@@ -1281,8 +1311,15 @@ def plot_sliding_column_process(
             valid = matched & finite_strength
             score[valid] = np.min(strengths[valid][:, active], axis=1)
             event_intensity = np.maximum(event_intensity, score)
+        event_plot_mask = np.isfinite(event_intensity) & (
+            event_intensity > event_min_intensity
+        )
 
-    fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    if target_ax is None:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    else:
+        ax = target_ax
+        fig = ax.figure
     rng = np.random.default_rng(gaussian_seed) if color_mode == "gaussian" else None
     excluded_labels = (
         set()
@@ -1313,6 +1350,18 @@ def plot_sliding_column_process(
             smoothed,
         )
 
+    def _center_edges(values: np.ndarray) -> np.ndarray:
+        centers = np.sort(np.unique(values[np.isfinite(values)]))
+        if centers.size == 0:
+            raise ValueError("Cannot infer pixel edges from empty coordinates.")
+        if centers.size == 1:
+            half_step = 0.5
+            return np.array([centers[0] - half_step, centers[0] + half_step])
+        midpoints = 0.5 * (centers[:-1] + centers[1:])
+        first = centers[0] - (midpoints[0] - centers[0])
+        last = centers[-1] + (centers[-1] - midpoints[-1])
+        return np.concatenate([[first], midpoints, [last]])
+
     handles: list[Any] = []
     if color_mode == "contour" and contour_background:
         ax.scatter(
@@ -1327,7 +1376,57 @@ def plot_sliding_column_process(
 
     for label in present_labels:
         mask = df["proc_label"] == label
+        if color_mode == "event" and event_plot_mask is not None:
+            mask = mask & event_plot_mask
         if not mask.any():
+            continue
+        if color_mode == "hexagram":
+            if hex_colors is None:
+                continue
+            group_index = np.flatnonzero(mask.to_numpy())
+            colors = hex_colors[group_index]
+            finite_rgb = np.isfinite(colors).all(axis=1)
+            if not np.any(finite_rgb):
+                continue
+
+            group = df.loc[mask].iloc[finite_rgb]
+            time_centers = mdates.date2num(group["time"].to_numpy())
+            height_centers = group["range"].to_numpy(dtype=float) / 1000.0
+            time_edges = _center_edges(mdates.date2num(df["time"].to_numpy()))
+            height_edges = _center_edges(df["range"].to_numpy(dtype=float) / 1000.0)
+            time_idx = np.searchsorted(time_edges, time_centers, side="right") - 1
+            height_idx = np.searchsorted(height_edges, height_centers, side="right") - 1
+            time_idx = np.clip(time_idx, 0, len(time_edges) - 2)
+            height_idx = np.clip(height_idx, 0, len(height_edges) - 2)
+
+            patches = [
+                Rectangle(
+                    (time_edges[tidx], height_edges[hidx]),
+                    time_edges[tidx + 1] - time_edges[tidx],
+                    height_edges[hidx + 1] - height_edges[hidx],
+                )
+                for tidx, hidx in zip(time_idx, height_idx)
+            ]
+            collection = PatchCollection(
+                patches,
+                facecolors=colors[finite_rgb],
+                edgecolors="none",
+                linewidths=0.0,
+                alpha=alpha,
+                label=label,
+            )
+            ax.add_collection(collection)
+            handles.append(
+                Rectangle(
+                    (0, 0),
+                    1,
+                    1,
+                    facecolor=process_colors.get(label, "#333333"),
+                    edgecolor="none",
+                    alpha=alpha,
+                    label=label,
+                )
+            )
             continue
         if color_mode == "contour":
             group = df.loc[mask].copy()
@@ -1383,20 +1482,42 @@ def plot_sliding_column_process(
 
             x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
             y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
-            grid_x, grid_y = np.meshgrid(x_centers, y_centers)
+            x_padded = np.concatenate(
+                [
+                    [x_edges[0] - 0.5 * (x_edges[1] - x_edges[0])],
+                    x_centers,
+                    [x_edges[-1] + 0.5 * (x_edges[-1] - x_edges[-2])],
+                ]
+            )
+            y_padded = np.concatenate(
+                [
+                    [y_edges[0] - 0.5 * (y_edges[1] - y_edges[0])],
+                    y_centers,
+                    [y_edges[-1] + 0.5 * (y_edges[-1] - y_edges[-2])],
+                ]
+            )
+            grid_x, grid_y = np.meshgrid(x_padded, y_padded)
             color = process_colors.get(label, "#333333")
             for contour_index in range(contour_top_n):
-                target_count = contour_event_count * (contour_index + 1)
+                target_count = int(
+                    round(contour_event_count * contour_region_scale * (contour_index + 1))
+                )
+                target_count = max(1, target_count)
                 if target_count > point_density.size:
                     break
                 threshold = np.sort(point_density)[::-1][target_count - 1]
                 if not np.isfinite(threshold) or threshold <= 0.0:
                     continue
+                selected_density = np.zeros_like(density, dtype=float)
+                selected_density[density >= float(threshold)] = 1.0
+                if not np.any(selected_density):
+                    continue
+                selected_density = np.pad(selected_density, 1, mode="constant")
                 ax.contour(
                     grid_x,
                     grid_y,
-                    density,
-                    levels=[float(threshold)],
+                    selected_density,
+                    levels=[0.5],
                     colors=[color],
                     linewidths=float(kwargs.get("contour_linewidth", 1.8)),
                     alpha=max(
@@ -1440,7 +1561,7 @@ def plot_sliding_column_process(
             scatter_kwargs["cmap"] = kwargs.get(
                 "event_cmap", kwargs.get("cmap", "viridis")
             )
-            scatter_kwargs["vmin"] = float(kwargs.get("event_vmin", 0.0))
+            scatter_kwargs["vmin"] = event_vmin
             scatter_kwargs["vmax"] = float(kwargs.get("event_vmax", 1.0))
         elif color_mode in {"hexagram", "gaussian"} and hex_colors is not None:
             colors = hex_colors[np.flatnonzero(mask.to_numpy())]
@@ -1506,7 +1627,7 @@ def plot_sliding_column_process(
     if color_mode == "event" and event_intensity is not None:
         mappable = plt.cm.ScalarMappable(
             norm=plt.Normalize(
-                vmin=float(kwargs.get("event_vmin", 0.0)),
+                vmin=event_vmin,
                 vmax=float(kwargs.get("event_vmax", 1.0)),
             ),
             cmap=kwargs.get("event_cmap", kwargs.get("cmap", "viridis")),
@@ -1520,6 +1641,9 @@ def plot_sliding_column_process(
     ax.tick_params(labelsize=tick_fs)
     ax.grid(True, which="both", linestyle="--", linewidth=0.45, alpha=0.35)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    if color_mode in {"hexagram", "contour"}:
+        time_edges = _center_edges(mdates.date2num(df["time"].to_numpy()))
+        ax.set_xlim(float(time_edges[0]), float(time_edges[-1]))
 
     period_start = sliding_attrs.get(
         "period_start", sliding_df.attrs.get("period_start", None)
@@ -1556,7 +1680,7 @@ def plot_sliding_column_process(
     if y_limits is not None:
         ax.set_ylim(*y_limits)
 
-    if handles and color_mode != "event":
+    if handles and color_mode != "event" and bool(kwargs.get("show_legend", True)):
         ax.legend(
             handles=handles,
             loc=kwargs.get("legend_loc", "upper left"),
@@ -1959,6 +2083,8 @@ def plot_sliding_process_scatter_compare(
         "process_colors",
         {
             "breakup": "#d95f02",
+            "breakup_gain": "#13d7d7",
+            "breakup_loss": "#24ca24",
             "growth_depletion": "#1b9e77",
             "growth_depletion_gain": "#7570b3",
             "growth_depletion_loss": "#6a3d9a",
@@ -2164,6 +2290,7 @@ def plot_classified_processes_on_hexagram(
     alpha_hexagram = kwargs.get("alpha_hexagram", pcfg.alpha_hexagram)
     alpha_mask = kwargs.get("alpha_mask", 0.18)
     markersize = kwargs.get("markersize", 35.0)
+    use_hexbin = bool(kwargs.get("use_hexbin", False))
 
     # Check processes names are correct with respect to the codes in PROCESS_CODES
     if processes is not None:
@@ -2192,6 +2319,8 @@ def plot_classified_processes_on_hexagram(
         "process_colors",
         {
             "breakup": "#d95f02",
+            "breakup_gain": "#13d7d7",
+            "breakup_loss": "#24ca24",
             "growth_depletion": "#1b9e77",
             "growth_depletion_gain": "#7570b3",
             "growth_depletion_loss": "#6a3d9a",
@@ -2243,27 +2372,59 @@ def plot_classified_processes_on_hexagram(
     present_labels = pd.unique(labels[valid])
     handles: list[Any] = []
     strength = classified["strength"].values.astype(float)
+    hexbin_gridsize = kwargs.get("hexbin_gridsize", max(img.shape[0], img.shape[1]))
     scatter = None
     for label in present_labels:
         mask = valid & (labels == label)
         if not np.any(mask):
             continue
         marker = PROCESS_MARKERS.get(label, "o")
-        scatter = ax.scatter(
-            hx[mask],
-            hy[mask],
-            s=markersize,
-            c=strength[mask],
-            cmap=kwargs.get("cmap", "viridis"),
-            vmin=0.0,
-            vmax=1.0,
-            marker=marker,
-            edgecolors="black",
-            linewidths=0.3,
-            alpha=0.95,
-            label=PROCESS_CODES.get(label, label.upper()),
-        )
-        handles.append(scatter)
+        if use_hexbin:
+            scatter = ax.hexbin(
+                hx[mask],
+                hy[mask],
+                C=strength[mask],
+                gridsize=hexbin_gridsize,
+                extent=(-0.5, img.shape[1] - 0.5, -0.5, img.shape[0] - 0.5),
+                reduce_C_function=np.nanmean,
+                mincnt=1,
+                cmap=kwargs.get("cmap", "viridis"),
+                vmin=0.0,
+                vmax=1.0,
+                edgecolors="black",
+                linewidths=0.3,
+                alpha=0.95,
+                label=PROCESS_CODES.get(label, label.upper()),
+            )
+            handles.append(
+                Line2D(
+                    [0],
+                    [0],
+                    marker="h",
+                    color="none",
+                    markerfacecolor=process_colors.get(label, "#333333"),
+                    markeredgecolor="black",
+                    markeredgewidth=0.6,
+                    markersize=7,
+                    label=PROCESS_CODES.get(label, label.upper()),
+                )
+            )
+        else:
+            scatter = ax.scatter(
+                hx[mask],
+                hy[mask],
+                s=markersize,
+                c=strength[mask],
+                cmap=kwargs.get("cmap", "viridis"),
+                vmin=0.0,
+                vmax=1.0,
+                marker=marker,
+                edgecolors="black",
+                linewidths=0.3,
+                alpha=0.95,
+                label=PROCESS_CODES.get(label, label.upper()),
+            )
+            handles.append(scatter)
 
     if scatter is not None:
         cbar = fig.colorbar(scatter, ax=ax)
@@ -2278,7 +2439,7 @@ def plot_classified_processes_on_hexagram(
     ax.grid(False)
 
     if handles:
-        ax.legend(loc="upper right", frameon=True)
+        ax.legend(handles=handles, loc="upper right", frameon=True)
 
     fig.tight_layout()
 

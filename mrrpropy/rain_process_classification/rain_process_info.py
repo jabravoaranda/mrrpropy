@@ -36,8 +36,8 @@ PROCESS_CODES: dict[str, str] = {
 
 PROCESS_MARKERS: dict[str, str] = {
     "breakup": "s",
-    "breakup_gain": "B",
-    "breakup_loss": "b",
+    "breakup_gain": "P",
+    "breakup_loss": "p",
     "growth_depletion": "o",
     "growth_depletion_gain": "D",
     "growth_depletion_loss": "d",

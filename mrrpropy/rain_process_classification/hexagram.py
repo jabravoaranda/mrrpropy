@@ -684,19 +684,6 @@ def generate_rgb_hex(
                 writer.writerow(num_hex[:, i])
     num_hex = num_hex.T
 
-    print("rgb_hex shape:", g_hex.shape)
-    print("----")
-    print(
-        "output_filename-> r_file:",
-        r_file,
-        ", g_file:",
-        g_file,
-        ", b_file:",
-        b_file,
-        "n_file",
-        n_file,
-    )
-
     return r_hex, g_hex, b_hex, num_hex
 
 

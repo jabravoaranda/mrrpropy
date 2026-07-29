@@ -548,6 +548,27 @@ def get_context(
     bb_peak = xr.DataArray(bb_peak_m) if not isinstance(bb_peak_m, xr.DataArray) else bb_peak_m
     bb_top = xr.DataArray(bb_top_m) if not isinstance(bb_top_m, xr.DataArray) else bb_top_m
 
+    # RaProMPro products store BB fields as (time, BB_Height), while callers
+    # commonly pass those fields directly.  Reduce singleton BB dimensions so
+    # all three distances remain time-aligned rather than broadcasting a
+    # spurious extra dimension into the process features.
+    for name, value in (("bottom", bb_bottom), ("peak", bb_peak), ("top", bb_top)):
+        extra_dims = [dim for dim in value.dims if dim != "time"]
+        non_singleton = [dim for dim in extra_dims if value.sizes[dim] != 1]
+        if non_singleton:
+            raise ValueError(
+                f"BB {name} must have only singleton non-time dimensions; "
+                f"got {non_singleton}."
+            )
+        if extra_dims:
+            reduced = value.squeeze(extra_dims, drop=True)
+            if name == "bottom":
+                bb_bottom = reduced
+            elif name == "peak":
+                bb_peak = reduced
+            else:
+                bb_top = reduced
+
     # Align on time if time coordinate exists on bb_* arrays.
     if "time" in bb_bottom.coords:
         bb_bottom = bb_bottom.sel(time=out["time"])
@@ -582,6 +603,7 @@ def get_context(
         z_center_used = z_center_used.expand_dims(time=out["time"])
     out["dist_bb_peak"] = z_center_used - bb_peak
     out["dist_bb_bottom"] = z_center_used - bb_bottom
+    out["dist_bb_top"] = z_center_used - bb_top
     out["overlaps_bb"] = (z_top_used > bb_bottom) & (z_bottom_used < bb_top)
 
     rr = ds[RR_var]
