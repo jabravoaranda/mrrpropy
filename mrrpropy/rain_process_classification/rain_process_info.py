@@ -9,6 +9,8 @@ ProcessSignature: TypeAlias = tuple[int, int, int]
 
 PROCESS_SIGNATURES: dict[str, list[ProcessSignature]] = {
     "breakup": [(-1, +1, 0)],
+    "breakup_gain": [(-1, +1, +1)],
+    "breakup_loss": [(-1, +1, -1)],
     "growth_depletion": [(+1, -1, 0)],
     "growth_depletion_gain": [(+1, -1, +1)],
     "growth_depletion_loss": [(+1, -1, -1)],
@@ -22,6 +24,8 @@ PROCESS_CODES: dict[str, str] = {
     "unknown": "UNKNOWN",
     "steady_or_weak": "STEADY",
     "breakup": "BREAKUP",
+    "breakup_gain": "BU-GAIN",
+    "breakup_loss": "BU-LOSS",
     "growth_depletion": "GROWTH-DEPLETION",
     "growth_depletion_gain": "GD-GAIN",
     "growth_depletion_loss": "GD-LOSS",
@@ -32,6 +36,8 @@ PROCESS_CODES: dict[str, str] = {
 
 PROCESS_MARKERS: dict[str, str] = {
     "breakup": "s",
+    "breakup_gain": "B",
+    "breakup_loss": "b",
     "growth_depletion": "o",
     "growth_depletion_gain": "D",
     "growth_depletion_loss": "d",
