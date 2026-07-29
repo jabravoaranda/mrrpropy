@@ -8,6 +8,9 @@ from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
 
+from mrrpropy.rain_process_classification.rain_process_algorithm import (
+    sliding_rain_classification_to_dataframe,
+)
 from mrrpropy.raw_class import MRRProData
 
 matplotlib.use("Agg")
@@ -31,7 +34,7 @@ def _save_quicklook(
     prefix: str,
     dpi: int,
 ) -> Path:
-    fig, _ = mrr.quicklook(variable=variable, source=source)
+    fig, _, _ = mrr.quicklook(variable=variable, source=source)
     output_path = output_dir / f"{prefix}_{source}_{variable}_quicklook.png"
     fig.savefig(output_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
@@ -126,7 +129,7 @@ def _save_raw_plots(
     center_range = float(range_values[len(range_values) // 2])
     comparison_ranges = range_values[[5, len(range_values) // 2, -5]].astype(float)
 
-    fig, _ = mrr.plot_spectrum(
+    fig, _, _ = mrr.plot_spectrum(
         target_time,
         center_range,
         spectrum_var="spectrum_raw",
@@ -136,7 +139,7 @@ def _save_raw_plots(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_spectra_by_range(
+    fig, _, _ = mrr.plot_spectra_by_range(
         target_time,
         comparison_ranges,
         savefig=True,
@@ -145,7 +148,7 @@ def _save_raw_plots(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_spectrogram(
+    fig, _, _ = mrr.plot_spectrogram(
         target_time,
         spectrum_var="spectrum_raw",
         savefig=True,
@@ -191,7 +194,7 @@ def _save_processed_plots(
     if not include_spectral_plots:
         return
 
-    fig, _ = mrr.plot_spectrogram(
+    fig, _, _ = mrr.plot_spectrogram(
         target_time,
         spectrum_var="spe_3D",
         savefig=True,
@@ -200,7 +203,7 @@ def _save_processed_plots(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_DSDgram(
+    fig, _, _ = mrr.plot_DSDgram(
         target_datetime=target_time,
         savefig=True,
         output_dir=output_dir,
@@ -208,7 +211,7 @@ def _save_processed_plots(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_DSD_by_range(
+    fig, _, _ = mrr.plot_DSD_by_range(
         target_time,
         ranges=np.arange(500.0, 2500.0, 250.0),
         savefig=True,
@@ -252,7 +255,7 @@ def _save_layer_rain_analysis(
     dynamics.to_csv(output_dir / "process_dynamics_samples.csv", index=True)
     summary.to_csv(output_dir / "process_dynamics_summary.csv", index=False)
 
-    fig, _ = mrr.plot_rain_process_in_layer_2D(
+    fig, _, _ = mrr.plot_rain_process_in_layer_2D(
         target_datetime=(
             _to_python_datetime(period[0]),
             _to_python_datetime(period[1]),
@@ -269,7 +272,7 @@ def _save_layer_rain_analysis(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_rain_process_in_layer_hexagram(
+    fig, _, _ = mrr.plot_rain_process_in_layer_hexagram(
         analysis=analysis,
         savefig=True,
         output_dir=output_dir,
@@ -279,7 +282,7 @@ def _save_layer_rain_analysis(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_processes_evolution(
+    fig, _, _ = mrr.plot_processes_evolution(
         classified=classified,
         analysis=analysis,
         savefig=True,
@@ -293,7 +296,7 @@ def _save_layer_rain_analysis(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_classified_processes_on_hexagram(
+    fig, _, _ = mrr.plot_classified_processes_on_hexagram(
         classified=classified,
         analysis=analysis,
         savefig=True,
@@ -304,7 +307,7 @@ def _save_layer_rain_analysis(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_event_scatter(
+    fig, _, _ = mrr.plot_event_scatter(
         target_datetime=(
             _to_python_datetime(period[0]),
             _to_python_datetime(period[1]),
@@ -320,7 +323,7 @@ def _save_layer_rain_analysis(
     )
     plt.close(fig)
 
-    fig, _ = mrr.plot_event_vertical_percent_profiles(
+    fig, _, _ = mrr.plot_event_vertical_percent_profiles(
         target_datetime=(
             _to_python_datetime(period[0]),
             _to_python_datetime(period[1]),
@@ -338,7 +341,7 @@ def _save_layer_rain_analysis(
         if label == "no_data":
             continue
         try:
-            fig, _ = mrr.plot_process_scatter(
+            fig, _, _ = mrr.plot_process_scatter(
                 classified=classified,
                 process=label,
                 target_datetime=(
@@ -359,7 +362,7 @@ def _save_layer_rain_analysis(
             pass
 
         try:
-            fig, _ = mrr.plot_process_vertical_percent_profiles(
+            fig, _, _ = mrr.plot_process_vertical_percent_profiles(
                 classified=classified,
                 process=label,
                 target_datetime=(
@@ -389,12 +392,14 @@ def _save_column_event_sliding(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sliding_df = mrr.sliding_rain_classification(
-        period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
-        k=k,
-        window_thickness_m=window_thickness_m,
-        window_step_m=window_step_m,
-        min_tau_strength=MIN_TAU_STRENGTH,
+    sliding_df = sliding_rain_classification_to_dataframe(
+        mrr.sliding_rain_classification(
+            period=(_to_python_datetime(period[0]), _to_python_datetime(period[1])),
+            k=k,
+            window_thickness_m=window_thickness_m,
+            window_step_m=window_step_m,
+            min_tau_strength=MIN_TAU_STRENGTH,
+        )
     )
     episodes_df = mrr.detect_column_process_episodes(
         sliding_df=sliding_df,
@@ -443,7 +448,7 @@ def _save_column_event_sliding(
     )
 
     if not sliding_df_plot.empty:
-        fig, _ = mrr.plot_sliding_column_process(
+        fig, _, _ = mrr.plot_sliding_column_process(
             sliding_df=sliding_df_plot,
             color_mode="hexagram",
             processes=[
@@ -465,7 +470,7 @@ def _save_column_event_sliding(
         plt.close(fig)
 
     if not sliding_df_events.empty:
-        fig, _ = mrr.plot_sliding_column_process(
+        fig, _, _ = mrr.plot_sliding_column_process(
             sliding_df=sliding_df_events,
             color_mode="rain_signature",
             processes=[

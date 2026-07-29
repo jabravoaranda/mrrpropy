@@ -521,7 +521,7 @@ def BB2(V,ZE,he,SK,KUR,last_bot,last_top,last_peak):#the input are fall speed, e
                     if hBBPEAK>hBBtop:
                         hBBPEAK=hBBtop
                     if hBBPEAK<hBBbottom:
-                        hBBPEAK=hBBottom
+                        hBBPEAK=hBBbottom
                     
 
     if ~np.isnan(hBBbottom) and ~np.isnan(last_bb_bot):

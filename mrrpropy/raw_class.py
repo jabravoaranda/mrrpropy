@@ -22,6 +22,8 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from mpl_toolkits.mplot3d import Axes3D
+
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -501,7 +503,7 @@ class MRRProData:
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
         **kwargs: Any,
-    ) -> tuple[Figure, Axes]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot a quick time-height view of a raw or processed 2D field.
 
@@ -520,8 +522,8 @@ class MRRProData:
 
         Returns
         -------
-        tuple[Figure, Axes]
-            Matplotlib figure and axes.
+        tuple[Figure, Axes, Path | None]
+            Matplotlib figure, axes, and optional saved path.
         """
         return raw_plotting.quicklook(
             self,
@@ -545,11 +547,11 @@ class MRRProData:
         velocity_limits: tuple[float, float] | None = None,
         label_type: str = "both",  # both|time|range
         fig: Figure | None = None,
-        ax=None,
+        ax: Axes | None = None,
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot a single-gate Doppler spectrum at a selected time and range.
 
@@ -663,7 +665,7 @@ class MRRProData:
 
         Returns
         -------
-        (fig, filepath) : (Figure, Path | None)
+        (fig, ax, filepath) : (Figure, Axes, Path | None)
         """
         return raw_plotting.plot_spectra_by_range(
             self,
@@ -693,7 +695,7 @@ class MRRProData:
         output_dir: Path | None = None,
         savefig: bool = False,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot a range-by-velocity spectrogram at the nearest requested time.
         The displayed velocity axis uses negative values for downward motion.
@@ -792,9 +794,9 @@ class MRRProData:
         savefig: bool = False,
         output_dir=None,
         fig=None,
-        ax=None,
+        ax: Axes | None = None,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot several N(D) curves at a fixed time for multiple provided ranges,
         using raprompro dsd_3D(time, range, DropSize).
@@ -821,9 +823,67 @@ class MRRProData:
 
         Returns
         -------
-        (fig, filepath) : (Figure, Path | None)
+        (fig, ax, filepath) : (Figure, Axes, Path | None)
         """
         return processed_plotting.plot_dsd_by_range(
+            self,
+            target_datetime,
+            ranges,
+            use_log10=use_log10,
+            vmin=vmin,
+            vmax=vmax,
+            ncol=ncol,
+            savefig=savefig,
+            output_dir=output_dir,
+            fig=fig,
+            ax=ax,
+            **kwargs,
+        )
+    
+    def plot_DSD_by_range_3d(
+        self,
+        target_datetime,
+        ranges: list[float] | np.ndarray,
+        *,
+        use_log10: bool = False,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        ncol: int = 2,
+        savefig: bool = False,
+        output_dir=None,
+        fig=None,
+        ax: Axes | None = None,
+        **kwargs,
+    ) -> tuple[Figure, Axes, Path | None]:
+        """
+        Plot several N(D) curves at a fixed time for multiple provided ranges,
+        using raprompro dsd_3D(time, range, DropSize).
+
+        Parameters
+        ----------
+        target_datetime : datetime | np.datetime64 | str
+            Target time. Nearest time gate is used.
+        ranges : list[float] | np.ndarray
+            List of ranges in meters. Nearest range gate is used for each.
+        use_log10 : bool, default False
+            If True, plot log10(N). If False, plot N in linear units (log y-scale).
+            NOTE: If dsd_3D is stored already in log10, conversion is handled automatically.
+        vmin, vmax : float | None
+            Optional y-limits (applied as ylim). If both are None, no limits set.
+        ncol : int, default 2
+            Legend columns.
+        fig, ax : matplotlib Figure/Axes, optional
+            Reuse existing axes.
+        output_dir : Path, optional
+            Output directory if savefig=True.
+        savefig : bool, default False
+            Save to disk if True.
+
+        Returns
+        -------
+        (fig, ax, filepath) : (Figure, Axes, Path | None)
+        """
+        return processed_plotting.plot_dsd_by_range_3d(
             self,
             target_datetime,
             ranges,
@@ -873,7 +933,7 @@ class MRRProData:
         use_relative_difference: bool = True,
         savefig: bool = False,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plots the rain process in a specified atmospheric layer at a given datetime.
         This method generates a scatter plot of two selected variables (x and y) from the dataset,
@@ -903,8 +963,8 @@ class MRRProData:
                     Directory to save the figure if savefig is True (default is current working directory).
         Returns
         -------
-        tuple[Figure, Path | None]
-            A tuple containing the matplotlib Figure object and the output Path if saved, otherwise None.
+        tuple[Figure, Axes, Path | None]
+            A tuple containing the matplotlib Figure object, Axes object, and output Path if saved, otherwise None.
         Raises
         ------
         KeyError
@@ -934,7 +994,7 @@ class MRRProData:
         use_relative_difference: bool = True,
         savefig: bool = False,
         **kwargs: Any,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot a single event scatter for one time window and one layer.
 
@@ -969,7 +1029,7 @@ class MRRProData:
         use_relative_difference: bool = True,
         savefig: bool = False,
         **kwargs: Any,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot the scatter of one selected time-height region of the quicklook.
 
@@ -1005,7 +1065,7 @@ class MRRProData:
         use_relative_difference: bool = True,
         savefig: bool = False,
         **kwargs: Any,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot a single event scatter filtered to one classified rain process.
         """
@@ -1039,7 +1099,7 @@ class MRRProData:
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs: Any,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Compare several classified sliding processes in a shared microphysical scatter.
 
@@ -1073,7 +1133,7 @@ class MRRProData:
         use_relative_difference: bool = True,
         savefig: bool = False,
         **kwargs: Any,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot vertical percent profiles for one event window and one layer.
 
@@ -1101,7 +1161,7 @@ class MRRProData:
         use_relative_difference: bool = True,
         savefig: bool = False,
         **kwargs: Any,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot vertical percent profiles for one classified process in one layer.
         """
@@ -1210,7 +1270,7 @@ class MRRProData:
         savefig: bool = False,
         output_dir=None,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         SOLO plotting: dibuja el hexagrama base (RGB) y superpone la trayectoria temporal (puntos)
         usando el resultado precomputado `analysis` (salida de layer_rain_classification).
@@ -1366,7 +1426,7 @@ class MRRProData:
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot a temporal summary of the classified rain-process evolution.
 
@@ -1518,7 +1578,7 @@ class MRRProData:
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot classified samples on the RGB hexagram used by the package.
 
@@ -1557,7 +1617,7 @@ class MRRProData:
         savefig: bool = False,
         output_dir: Path | None = None,
         **kwargs,
-    ) -> tuple[Figure, Path | None]:
+    ) -> tuple[Figure, Axes, Path | None]:
         """
         Plot a time-height curtain of process labels from a whole-sliding column.
 
@@ -1572,3 +1632,23 @@ class MRRProData:
             output_dir=output_dir,
             **kwargs,
         )
+
+    def plot_za_range_histogram(
+            ds_za, 
+            za_bins=None, 
+            range_bins=None,
+            cmap: str | None = 'jet', 
+            fig_title: str | None = "Za vs Range — 2D histogram", 
+            output_dir: Path | None = None
+    ):
+            
+        return process_plotting.plot_za_range_histogram(
+            ds_za,
+            za_bins,
+            range_bins,
+            cmap,
+            fig_title,
+            output_dir,
+        )
+    
+    

@@ -9,6 +9,7 @@ from matplotlib.collections import PatchCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
@@ -237,7 +238,7 @@ def _plot_layer_scatter(
     savefig: bool,
     filename_prefix: str,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     pcfg = subject.plot_cfg
     figsize = kwargs.get("figsize", pcfg.figsize)
     markersize = kwargs.get("marker_size", kwargs.get("markersize", 50))
@@ -391,7 +392,7 @@ def _plot_layer_scatter(
         )
         fig.savefig(output_path)
 
-    return fig, output_path
+    return fig, ax, output_path
 
 
 def _plot_vertical_percent_profiles(
@@ -406,7 +407,7 @@ def _plot_vertical_percent_profiles(
     savefig: bool,
     filename_prefix: str,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     colors = kwargs.get(
         "profile_colors",
         {
@@ -524,7 +525,7 @@ def _plot_vertical_percent_profiles(
         )
         fig.savefig(output_path)
 
-    return fig, output_path
+    return fig, ax, output_path
 
 
 def plot_rain_process_in_layer_2d(
@@ -537,7 +538,7 @@ def plot_rain_process_in_layer_2d(
     use_relative_difference: bool = True,
     savefig: bool = False,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot the rain-process evolution in a selected layer as a 2D scatter."""
     return _plot_layer_scatter(
         subject,
@@ -567,7 +568,7 @@ def plot_event_scatter(
     use_relative_difference: bool = True,
     savefig: bool = False,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a single scatter figure for one event window and one layer."""
     return _plot_layer_scatter(
         subject,
@@ -601,7 +602,7 @@ def plot_region_scatter(
     use_relative_difference: bool = True,
     savefig: bool = False,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a scatter for one selected time-height region of the quicklook."""
     resolved_layer = layer
     if resolved_layer is None:
@@ -641,7 +642,7 @@ def plot_process_scatter(
     use_relative_difference: bool = True,
     savefig: bool = False,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a single scatter figure filtered to one classified rain process."""
     return _plot_layer_scatter(
         subject,
@@ -669,7 +670,7 @@ def plot_event_vertical_percent_profiles(
     use_relative_difference: bool = True,
     savefig: bool = False,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot one vertical percent-profile figure for an event window."""
     return _plot_vertical_percent_profiles(
         subject,
@@ -696,7 +697,7 @@ def plot_process_vertical_percent_profiles(
     use_relative_difference: bool = True,
     savefig: bool = False,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot one vertical percent-profile figure filtered to one process."""
     return _plot_vertical_percent_profiles(
         subject,
@@ -712,6 +713,75 @@ def plot_process_vertical_percent_profiles(
     )
 
 
+def plot_za_range_histogram(
+    ds_za,
+    za_bins=None,
+    range_bins=None,
+    cmap: str | None = "jet",
+    fig_title: str | None = "Za vs Range — 2D histogram",
+    output_dir: Path | None = None,
+):
+    """
+    2D histogram of Za (reflectivity) vs range, colored by log10(count).
+
+    Parameters
+    ----------
+    ds_za : xr.DataArray
+        DataArray with dims (time, range), coords 'range' in meters.
+    za_bins : array-like, optional
+        Bin edges for Za (dBZ). Defaults to -5 to 40 in 1 dBZ steps.
+    range_bins : array-like, optional
+        Bin edges for range (m). Defaults to full extent in 50 m steps.
+    """
+    # flatten time × range
+    za_vals = ds_za.values.ravel()
+    range_coord = ds_za.coords["range"].values
+    range_vals = np.tile(range_coord, ds_za.sizes["time"])
+
+    # drop NaNs together
+    mask = np.isfinite(za_vals) & np.isfinite(range_vals)
+    za_vals = za_vals[mask]
+    range_vals = range_vals[mask]
+
+    if za_bins is None:
+        za_bins = np.arange(-5, 41, 1)  # dBZ
+    if range_bins is None:
+        r0, r1 = range_coord.min(), range_coord.max()
+        range_bins = np.arange(r0, r1 + 50, 50)  # 50 m steps
+
+    H, xedges, yedges = np.histogram2d(za_vals, range_vals, bins=[za_bins, range_bins])
+
+    # log10 of count; mask zeros
+    H_log = np.where(H > 0, np.log10(H), np.nan)
+
+    fig, ax = plt.subplots(figsize=(7, 8))
+
+    pcm = ax.pcolormesh(
+        xedges,
+        yedges,
+        H_log.T,  # transpose: rows=range, cols=Za
+        cmap=cmap,
+        vmin=-2,
+        vmax=3,
+        shading="flat",
+    )
+
+    cbar = fig.colorbar(pcm, ax=ax, pad=0.02)
+    cbar.set_label("log₁₀(m⁻³ mm⁻¹)", fontsize=11)
+    cbar.set_ticks([-2, -1, 0, 1, 2, 3])
+
+    ax.set_xlabel("Za reflectivity (dBZ)", fontsize=12)
+    ax.set_ylabel("Range / Height (m)", fontsize=12)
+    ax.set_xlim(za_bins[0], za_bins[-1])
+    ax.set_ylim(range_bins[0], range_bins[-1])
+
+    if fig_title:
+        ax.set_title(fig_title, fontsize=13)
+
+    plt.tight_layout()
+    return fig, ax
+
+
 def plot_rain_process_in_layer_hexagram(
     subject: SupportsProcessPlotting,
     *,
@@ -720,7 +790,7 @@ def plot_rain_process_in_layer_hexagram(
     savefig: bool = False,
     output_dir: str | Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Overlay an analysed rain-process trajectory on the RGB hexagram."""
     pcfg = subject.plot_cfg
     figsize = kwargs.get("figsize", pcfg.figsize_multipanel)
@@ -853,7 +923,7 @@ def plot_rain_process_in_layer_hexagram(
         )
         fig.savefig(filepath, dpi=dpi)
 
-    return fig, filepath
+    return fig, ax, filepath
 
 
 def plot_processes_evolution(
@@ -864,7 +934,7 @@ def plot_processes_evolution(
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a temporal summary of classified rain-process evolution."""
     pcfg = subject.plot_cfg
     cmap = kwargs.get("cmap", pcfg.cmap)
@@ -1032,7 +1102,7 @@ def plot_processes_evolution(
         )
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
-    return fig, filepath
+    return fig, ax_heatmap, filepath
 
 
 def plot_sliding_column_process(
@@ -1043,8 +1113,18 @@ def plot_sliding_column_process(
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
-    """Plot a time-range curtain of process labels from sliding classification."""
+) -> tuple[Figure, Axes, Path | None]:
+    """
+    Plot a time-height curtain of process labels from sliding classification.
+
+    Marker selection is controlled with ``marker_mode``:
+    - ``"process"`` uses ``PROCESS_MARKERS`` for one marker per process label.
+    - ``"square"`` uses square markers for every process label.
+    - ``"single"`` uses the value passed in ``marker`` for every process label.
+
+    The older ``pm`` keyword is still accepted for compatibility. ``pm=0`` maps
+    to ``marker_mode="process"`` and any other value maps to ``"single"``.
+    """
     pcfg = subject.plot_cfg
     figsize = kwargs.get("figsize", getattr(pcfg, "figsize_profiles", (14, 8)))
     dpi = kwargs.get("dpi", pcfg.dpi)
@@ -1056,6 +1136,14 @@ def plot_sliding_column_process(
     markersize = float(kwargs.get("markersize", 52.0))
     scale_by_strength = bool(kwargs.get("scale_by_strength", True))
     color_mode = str(kwargs.get("color_mode", "rain_signature")).lower()
+    marker_mode = kwargs.get("marker_mode")
+    if marker_mode is None:
+        if "pm" in kwargs:
+            marker_mode = "process" if kwargs["pm"] == 0 else "single"
+        elif color_mode in {"hexagram", "event", "gaussian"}:
+            marker_mode = "single"
+        else:
+            marker_mode = "process"
     event_process = kwargs.get("event_process", kwargs.get("process", None))
     gaussian_points = int(kwargs.get("gaussian_points", 30))
     gaussian_time_sigma_s = float(kwargs.get("gaussian_time_sigma_s", 45.0))
@@ -1085,10 +1173,20 @@ def plot_sliding_column_process(
         raise KeyError(f"sliding_df must contain columns: {missing}")
     if sliding_df.empty:
         raise ValueError("sliding_df is empty.")
-    if color_mode not in {"rain_signature", "hexagram", "event", "gaussian", "contour"}:
+    if color_mode == "process":
+        color_mode = "rain_signature"
+    if color_mode not in {
+        "rain_signature",
+        "hexagram",
+        "event",
+        "gaussian",
+        "contour",
+    }:
         raise ValueError(
             "color_mode must be 'rain_signature', 'hexagram', 'event', 'gaussian' or 'contour'."
         )
+    if marker_mode not in {"process", "single", "square"}:
+        raise ValueError("marker_mode must be 'process', 'single', or 'square'.")
     if color_mode == "event" and event_process is None:
         raise ValueError("color_mode='event' requires event_process='process_name'.")
     if color_mode == "gaussian" and gaussian_points < 1:
@@ -1438,11 +1536,12 @@ def plot_sliding_column_process(
             )
             continue
 
-        process_marker = (
-            marker
-            if color_mode in {"hexagram", "event", "gaussian"}
-            else PROCESS_MARKERS.get(label, marker)
-        )
+        if marker_mode == "process":
+            process_marker = PROCESS_MARKERS.get(label, marker)
+        elif marker_mode == "square":
+            process_marker = "s"
+        else:
+            process_marker = marker
         size = markersize
         if scale_by_strength and np.isfinite(df.loc[mask, "proc_strength"]).any():
             strength = df.loc[mask, "proc_strength"].fillna(0.0).clip(0.0, 1.0)
@@ -1608,11 +1707,11 @@ def plot_sliding_column_process(
         )
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
-    return fig, filepath
+    return fig, ax, filepath
 
 
 def plot_fused_process_quicklook(
-    sliding_df: pd.DataFrame,
+    sliding_df: xr.Dataset | pd.DataFrame,
     fused_df: pd.DataFrame,
     *,
     processes: list[str] | None = None,
@@ -1630,7 +1729,7 @@ def plot_fused_process_quicklook(
     output_dir: Path | None = None,
     dpi: int = 200,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """
     Quicklook plot to visually validate fused vertical process events.
 
@@ -1648,8 +1747,10 @@ def plot_fused_process_quicklook(
     are filtered to show only those process labels (same behaviour as
     :func:`plot_sliding_column_process`).
     """
+    if isinstance(sliding_df, xr.Dataset):
+        sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
     if not isinstance(sliding_df, pd.DataFrame):
-        raise TypeError("sliding_df must be a pandas DataFrame.")
+        raise TypeError("sliding_df must be an xr.Dataset or pandas DataFrame.")
     if not isinstance(fused_df, pd.DataFrame):
         raise TypeError("fused_df must be a pandas DataFrame.")
     if sliding_df.empty and fused_df.empty:
@@ -1680,9 +1781,11 @@ def plot_fused_process_quicklook(
 
     sliding_time_col = _resolve_column(sliding_df, time_col, ("time",))
     sliding_proc_col = _resolve_column(sliding_df, process_col, ("proc_label",))
-    sliding_top_col = _resolve_column(sliding_df, z_top_col, ("z_top_m", "z_max_m"))
+    sliding_top_col = _resolve_column(
+        sliding_df, z_top_col, ("z_top_m", "range_top_m", "z_max_m")
+    )
     sliding_bottom_col = _resolve_column(
-        sliding_df, z_bottom_col, ("z_bottom_m", "z_min_m")
+        sliding_df, z_bottom_col, ("z_bottom_m", "range_bottom_m", "z_min_m")
     )
 
     fused_time_col = _resolve_column(fused_df, time_col, ("time",))
@@ -1942,13 +2045,13 @@ def plot_fused_process_quicklook(
         filepath = outdir / f"fused_process_quicklook_{safe_t0}_{safe_t1}.png"
         fig.savefig(filepath, dpi=int(dpi), bbox_inches="tight")
 
-    return fig, filepath
+    return fig, ax, filepath
 
 
 def plot_sliding_process_scatter_compare(
     subject: SupportsProcessPlotting,
     *,
-    sliding_df: pd.DataFrame,
+    sliding_df: xr.Dataset | pd.DataFrame,
     processes: list[str],
     x: str = "Dm_layer_mean",
     y: str = "Nw_layer_mean",
@@ -1961,10 +2064,12 @@ def plot_sliding_process_scatter_compare(
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Compare several classified sliding processes in a shared microphysical scatter."""
+    if isinstance(sliding_df, xr.Dataset):
+        sliding_df = sliding_rain_classification_to_dataframe(sliding_df)
     if not isinstance(sliding_df, pd.DataFrame):
-        raise TypeError("sliding_df must be a pandas DataFrame.")
+        raise TypeError("sliding_df must be an xr.Dataset or pandas DataFrame.")
     selected_processes = [str(process) for process in processes if process is not None]
     if not selected_processes:
         raise ValueError("processes must contain at least one process name.")
@@ -2163,7 +2268,7 @@ def plot_sliding_process_scatter_compare(
         )
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
-    return fig, filepath
+    return fig, ax, filepath
 
 
 def plot_classified_processes_on_hexagram(
@@ -2177,7 +2282,7 @@ def plot_classified_processes_on_hexagram(
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot classified samples on the package RGB hexagram."""
     pcfg = subject.plot_cfg
     figsize = kwargs.get("figsize", pcfg.figsize_hex)
@@ -2351,4 +2456,4 @@ def plot_classified_processes_on_hexagram(
         filepath = outdir / f"classified_processes_hexagram_{t0s}_{t1s}_k{k}.png"
         fig.savefig(filepath, dpi=dpi, bbox_inches="tight")
 
-    return fig, filepath
+    return fig, ax, filepath

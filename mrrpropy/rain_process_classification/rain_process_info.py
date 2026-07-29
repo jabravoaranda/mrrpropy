@@ -34,7 +34,6 @@ PROCESS_CODES: dict[str, str] = {
     "activation": "ACTIV.",
 }
 
-
 PROCESS_MARKERS: dict[str, str] = {
     "breakup": "s",
     "breakup_gain": "P",

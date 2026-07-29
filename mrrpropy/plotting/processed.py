@@ -7,6 +7,7 @@ from typing import Any, Protocol, cast
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import xarray as xr
 
@@ -16,7 +17,8 @@ class SupportsProcessedPlotting(Protocol):
     raprompro: xr.Dataset | None
     plot_cfg: Any
 
-    def _is_processed(self) -> bool: ...
+    def _is_processed(self) -> bool:
+        ...
 
 
 def _resolve_height_limits_km(
@@ -48,7 +50,7 @@ def plot_dsdgram(
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a DSD gram at the nearest requested time."""
     if subject.raprompro is None:
         raise RuntimeError(
@@ -119,7 +121,7 @@ def plot_dsdgram(
         )
         fig.savefig(filepath, dpi=dpi)
 
-    return fig, filepath
+    return fig, ax, filepath
 
 
 def plot_dsd_by_range(
@@ -136,7 +138,7 @@ def plot_dsd_by_range(
     fig: Figure | None = None,
     ax: Axes | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot several N(D) curves at a fixed time for multiple provided ranges."""
     pcfg = subject.plot_cfg
     dpi = kwargs.get("dpi", pcfg.dpi)
@@ -162,7 +164,9 @@ def plot_dsd_by_range(
         if dim not in da.dims:
             raise ValueError(f"dsd_3D must have dim '{dim}'. dims={da.dims}")
 
-    t_sel = cast(np.datetime64, ds_rp["time"].sel(time=target_datetime, method="nearest").values)
+    t_sel = cast(
+        np.datetime64, ds_rp["time"].sel(time=target_datetime, method="nearest").values
+    )
 
     if fig is None and ax is None:
         fig, ax = plt.subplots(figsize=figsize)
@@ -276,7 +280,173 @@ def plot_dsd_by_range(
         )
         fig.savefig(filepath, dpi=dpi)
 
-    return fig, filepath
+    return fig, ax, filepath
+
+
+def plot_dsd_by_range_3d(
+    subject: SupportsProcessedPlotting,
+    target_datetime: datetime | np.datetime64 | str,
+    ranges: list[float] | np.ndarray,
+    *,
+    use_log10: bool = False,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    ncol: int = 2,
+    savefig: bool = False,
+    output_dir: Path | None = None,
+    fig: Figure | None = None,
+    ax: Axes3D | None = None,
+    **kwargs: Any,
+) -> tuple[Figure, Axes3D, Path | None]:
+    """Plot several N(D) curves at a fixed time for multiple provided ranges."""
+    pcfg = subject.plot_cfg
+    dpi = kwargs.get("dpi", pcfg.dpi)
+    cmap = kwargs.get("cmap", pcfg.cmap)
+    figsize = kwargs.get("figsize", pcfg.figsize)
+
+    if subject.raprompro is None:
+        raise RuntimeError("raprompro not loaded. Use load_raprompro().")
+    ds_rp = subject.raprompro
+    if "dsd_3D" not in ds_rp:
+        raise KeyError(
+            "raprompro missing required variable 'dsd_3D'. Check save_dsd_3d is True."
+        )
+    da = ds_rp["dsd_3D"]
+
+    for dim in ("time", "range", "DropSize"):
+        if dim not in da.dims:
+            raise ValueError(f"dsd_3D must have dim '{dim}'. dims={da.dims}")
+
+    t_sel = cast(
+        np.datetime64, ds_rp["time"].sel(time=target_datetime, method="nearest").values
+    )
+
+    if fig is None and ax is None:
+        fig = plt.figure(figsize=figsize)
+        ax = cast(Axes3D, fig.add_subplot(111, projection="3d"))
+    elif fig is not None and ax is None:
+        axes = fig.get_axes()
+        ax = next(
+            (cast(Axes3D, axis) for axis in axes if axis.name == "3d"),
+            None,
+        )
+        if ax is None:
+            ax = cast(Axes3D, fig.add_subplot(111, projection="3d"))
+    elif fig is None and ax is not None:
+        fig = cast(Figure, ax.figure)
+
+    if fig is None or ax is None:
+        raise ValueError("A matplotlib figure and axes could not be prepared.")
+    if not isinstance(ax, Axes3D):
+        raise TypeError("ax must be a three-dimensional matplotlib axes.")
+
+    ranges_in = np.asarray(ranges, dtype=float)
+    if ranges_in.size == 0:
+        raise ValueError("ranges must contain at least one value.")
+
+    units = (da.attrs.get("units", "") or "").lower()
+    data_is_log10 = "log10" in units or "log" in units
+
+    diameters = da["DropSize"].values.astype(float)
+    finite_diameters = np.isfinite(diameters)
+    if not np.any(finite_diameters):
+        raise ValueError("DropSize does not contain finite diameter values.")
+    diameters = diameters[finite_diameters]
+    diameter_scale = 1.0
+    diameter_units = da["DropSize"].attrs.get("units", "")
+    if diameter_units.lower() in ("m", "meter", "metre") or np.nanmax(diameters) < 0.05:
+        diameter_scale = 1000.0
+        diameter_units_out = "mm"
+    else:
+        diameter_units_out = diameter_units or "mm"
+    x_axis = diameters * diameter_scale
+
+    selected_ranges: list[float] = []
+    y_grid: list[np.ndarray] = []
+    threshold = float(kwargs.get("N_minimum_threshold", 0.0))
+
+    for requested_range in ranges_in:
+        selected_range = float(
+            ds_rp["range"].sel(range=requested_range, method="nearest").values.item()
+        )
+        dsd_profile = da.sel(time=t_sel, range=selected_range, method="nearest")
+        values = dsd_profile.values.astype(float)[finite_diameters]
+
+        if data_is_log10:
+            if threshold > 0.0:
+                values = np.where(values >= np.log10(threshold), values, np.nan)
+            if use_log10:
+                y_values = values
+            else:
+                y_values = 10.0**values
+        else:
+            values = np.where(values > max(0.0, threshold), values, np.nan)
+            if use_log10:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    y_values = np.log10(values)
+            else:
+                y_values = values
+
+        if not np.any(np.isfinite(y_values)):
+            continue
+
+        selected_ranges.append(selected_range)
+        y_grid.append(y_values)
+
+    if not selected_ranges:
+        raise ValueError("No valid DSD curves found for the provided ranges/time.")
+
+    if use_log10:
+        y_label = r"$\log_{10}(N)\ [\mathrm{m^{-3}\,mm^{-1}}]$"
+    else:
+        y_label = r"$N\ [\mathrm{m^{-3}\,mm^{-1}}]$"
+
+    X, Z = np.meshgrid(x_axis, np.asarray(selected_ranges))
+    Y = np.vstack(y_grid)
+
+    surf = ax.plot_surface(
+        X,
+        Y,
+        Z,
+        cmap=plt.get_cmap(cmap),
+        edgecolor="none",
+        antialiased=True,
+        alpha=float(kwargs.get("alpha", 0.6)),
+    )
+    fig.colorbar(surf, ax=ax, label=y_label)
+
+    ax.set_xlabel(f"D [{diameter_units_out}]", fontsize=12, labelpad=8)
+    ax.set_ylabel(y_label, fontsize=12, labelpad=8)
+    ax.set_zlabel("Range (m)", fontsize=12, labelpad=8)
+    # rotate the 3D view 130 degrees CW around the z axis
+    ax.view_init(elev=20, azim=-130)
+
+    ax.tick_params(labelsize=10)
+    ax.title.set_fontsize(16)
+
+    time_text = str(np.datetime_as_string(t_sel, unit="s"))
+    ax.set_title(f"RaProMPro N(D) by range (3D)\n{time_text}")
+    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+    if vmin is not None or vmax is not None:
+        ax.set_ylim(vmin, vmax)
+    if kwargs.get("xlimits") is not None:
+        ax.set_xlim(kwargs["xlimits"])
+
+    fig.tight_layout()
+
+    filepath: Path | None = None
+    if savefig:
+        if output_dir is None:
+            raise ValueError("output_dir must be provided if savefig=True.")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        time_tag = str(np.datetime_as_string(t_sel, unit="s")).replace(":", "")
+        filepath = output_dir / Path(subject.path).name.replace(
+            ".nc", f"_DSD_by_range_3d_{time_tag}.png"
+        )
+        fig.savefig(filepath, dpi=dpi)
+
+    return fig, ax, filepath
 
 
 def plot_microphysical_properties_profiles(

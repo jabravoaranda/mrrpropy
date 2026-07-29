@@ -51,7 +51,7 @@ def _fixed_layer_artifact_dir(artifact_dir: Path) -> Path:
 
 def test_plot_rain_process_in_layer_2d(raprompro_subset_10min_loaded_mrr, artifact_dir):
     output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_rain_process_in_layer_2D(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_rain_process_in_layer_2D(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -80,6 +80,7 @@ def test_plot_rain_process_in_layer_hexagram(
     output_dir = _fixed_layer_artifact_dir(artifact_dir)
     (
         fig,
+        ax,
         filepath,
     ) = raprompro_subset_10min_loaded_mrr.plot_rain_process_in_layer_hexagram(
         analysis=analysis,
@@ -91,6 +92,7 @@ def test_plot_rain_process_in_layer_hexagram(
     )
 
     assert isinstance(fig, Figure)
+    assert isinstance(ax, Axes)
     assert filepath is not None
     assert filepath.exists()
     assert filepath.suffix.lower() in (".png", ".jpg", ".jpeg", ".pdf")
@@ -111,7 +113,7 @@ def test_plot_microphysics_summary_multipanel(
     artifact_dir,
 ):
     output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_processes_evolution(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_processes_evolution(
         classified=classified,
         analysis=analysis,
         savefig=True,
@@ -139,7 +141,7 @@ def test_plot_microphysics_summary_multipanel(
 
 def test_plot_event_scatter(raprompro_subset_10min_loaded_mrr, artifact_dir):
     output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_event_scatter(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_event_scatter(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -175,7 +177,7 @@ def test_plot_region_scatter(
     )
     processes = labels[:2] if labels else None
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_region_scatter(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_region_scatter(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -219,7 +221,7 @@ def test_plot_process_scatter(
     if process is None:
         pytest.skip("No classified process is available in this fixture.")
 
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_process_scatter(
+    fig, _, path = raprompro_subset_10min_loaded_mrr.plot_process_scatter(
         classified=classified,
         process=process,
         target_datetime=(
@@ -281,7 +283,11 @@ def test_plot_event_vertical_percent_profiles(
     artifact_dir,
 ):
     output_dir = _fixed_layer_artifact_dir(artifact_dir)
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
+    (
+        fig,
+        _,
+        path,
+    ) = raprompro_subset_10min_loaded_mrr.plot_event_vertical_percent_profiles(
         target_datetime=(
             datetime(2025, 10, 29, 19, 23, 0),
             datetime(2025, 10, 29, 19, 33, 0),
@@ -324,6 +330,7 @@ def test_plot_process_vertical_percent_profiles(
 
     (
         fig,
+        ax,
         path,
     ) = raprompro_subset_10min_loaded_mrr.plot_process_vertical_percent_profiles(
         classified=classified,
@@ -340,6 +347,7 @@ def test_plot_process_vertical_percent_profiles(
     )
 
     assert isinstance(fig, Figure)
+    assert isinstance(ax, Axes)
     assert isinstance(path, Path)
     assert path.exists()
     axes = fig.get_axes()

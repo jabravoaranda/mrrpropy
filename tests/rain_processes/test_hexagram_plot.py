@@ -35,7 +35,11 @@ def test_plot_classified_processes_on_hexagram(
     classified,
     artifact_dir,
 ):
-    fig, path = raprompro_subset_10min_loaded_mrr.plot_classified_processes_on_hexagram(
+    (
+        fig,
+        _,
+        path,
+    ) = raprompro_subset_10min_loaded_mrr.plot_classified_processes_on_hexagram(
         classified=classified,
         analysis=analysis,
         savefig=True,

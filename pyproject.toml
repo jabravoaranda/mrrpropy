@@ -94,7 +94,6 @@ files = [
     "mrrpropy/rain_process_classification",
     "mrrpropy/preprocessing",
     "mrrpropy/utils.py",
-    "mrrpropy/rain_process_classification/hexagram.py",
     "mrrpropy/plotting",
     "mrrpropy/cli",
 ]

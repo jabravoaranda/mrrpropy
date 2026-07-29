@@ -25,7 +25,7 @@ def quicklook(
     vmin: float | None = None,
     vmax: float | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Axes]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a quick time-height view of a raw or processed 2D field."""
     pcfg = subject.plot_cfg
     cmap = kwargs.get("cmap", pcfg.cmap)
@@ -55,7 +55,7 @@ def quicklook(
     ax.set_ylabel("Range (m)")
     ax.set_xlabel("Time")
     plt.tight_layout()
-    return fig, ax
+    return fig, ax, None
 
 
 def plot_spectrum(
@@ -71,7 +71,7 @@ def plot_spectrum(
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a single-gate Doppler spectrum at a selected time and range."""
     pcfg = subject.plot_cfg
     dpi = kwargs.get("dpi", pcfg.dpi)
@@ -126,7 +126,7 @@ def plot_spectrum(
         )
         fig.savefig(filepath, dpi=dpi)
 
-    return fig, filepath
+    return fig, ax, filepath
 
 
 def plot_spectra_by_range(
@@ -142,7 +142,7 @@ def plot_spectra_by_range(
     savefig: bool = False,
     output_dir: Path | None = None,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot several MRR-PRO Doppler spectra at a fixed time for multiple ranges."""
     pcfg = subject.plot_cfg
     dpi = kwargs.get("dpi", pcfg.dpi)
@@ -286,7 +286,7 @@ def plot_spectra_by_range(
         )
         fig.savefig(filepath, dpi=dpi)
 
-    return fig, filepath
+    return fig, ax, filepath
 
 
 def plot_spectrogram(
@@ -303,7 +303,7 @@ def plot_spectrogram(
     output_dir: Path | None = None,
     savefig: bool = False,
     **kwargs: Any,
-) -> tuple[Figure, Path | None]:
+) -> tuple[Figure, Axes, Path | None]:
     """Plot a range-by-velocity spectrogram at the nearest requested time."""
     del variable_threshold, threshold_value
 
@@ -366,4 +366,4 @@ def plot_spectrogram(
         )
         fig.savefig(filepath, dpi=dpi)
 
-    return fig, filepath
+    return fig, ax, filepath

@@ -16,6 +16,9 @@ import numpy as np
 import pandas as pd
 
 from mrrpropy.rain_process_classification.hexagram import plot_process_to_hexagram
+from mrrpropy.rain_process_classification.rain_process_algorithm import (
+    sliding_rain_classification_to_dataframe,
+)
 from mrrpropy.plotting.processes import plot_fused_process_quicklook
 from mrrpropy.raw_class import MRRProData
 
@@ -86,12 +89,14 @@ class PlotContext:
     @property
     def sliding_df(self) -> pd.DataFrame:
         if self._sliding_df is None:
-            self._sliding_df = self.mrr.sliding_rain_classification(
-                period=PERIOD,
-                k=11,
-                window_thickness_m=500.0,
-                window_step_m=None,
-                min_tau_strength=0.5,
+            self._sliding_df = sliding_rain_classification_to_dataframe(
+                self.mrr.sliding_rain_classification(
+                    period=PERIOD,
+                    k=11,
+                    window_thickness_m=500.0,
+                    window_step_m=None,
+                    min_tau_strength=0.5,
+                )
             )
         return self._sliding_df
 
@@ -167,17 +172,17 @@ def _fused_df_from_sliding(sliding_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def quicklook_raw(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.quicklook(variable="Ze", source="raw", vmin=-10, vmax=40)
+    fig, _, _ = ctx.mrr.quicklook(variable="Ze", source="raw", vmin=-10, vmax=40)
     return _save(fig, output_dir, "quicklook_raw_ze.png")
 
 
 def quicklook_raprompro(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.quicklook(variable="Ze", source="raprompro", vmin=-10, vmax=40)
+    fig, _, _ = ctx.mrr.quicklook(variable="Ze", source="raprompro", vmin=-10, vmax=40)
     return _save(fig, output_dir, "quicklook_raprompro_ze.png")
 
 
 def plot_spectrum(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_spectrum(
+    fig, _, _ = ctx.mrr.plot_spectrum(
         TARGET_TIME,
         ctx.target_range,
         spectrum_var="spectrum_raw",
@@ -191,27 +196,27 @@ def plot_spectra_by_range(ctx: PlotContext, output_dir: Path) -> Path:
         .values[[5, ctx.mrr.ds.sizes["range"] // 2, -5]]
         .astype(float)
     )
-    fig, _ = ctx.mrr.plot_spectra_by_range(TARGET_TIME, ranges)
+    fig, _, _ = ctx.mrr.plot_spectra_by_range(TARGET_TIME, ranges)
     return _save(fig, output_dir, "plot_spectra_by_range.png")
 
 
 def plot_spectrogram_raw(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_spectrogram(TARGET_TIME, spectrum_var="spectrum_raw")
+    fig, _, _ = ctx.mrr.plot_spectrogram(TARGET_TIME, spectrum_var="spectrum_raw")
     return _save(fig, output_dir, "plot_spectrogram_raw.png")
 
 
 def plot_spectrogram_raprompro(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_spectrogram(TARGET_TIME, spectrum_var="spe_3D")
+    fig, _, _ = ctx.mrr.plot_spectrogram(TARGET_TIME, spectrum_var="spe_3D")
     return _save(fig, output_dir, "plot_spectrogram_raprompro.png")
 
 
 def plot_dsdgram(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_DSDgram(target_datetime=TARGET_TIME)
+    fig, _, _ = ctx.mrr.plot_DSDgram(target_datetime=TARGET_TIME)
     return _save(fig, output_dir, "plot_dsdgram.png")
 
 
 def plot_dsd_by_range(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_DSD_by_range(
+    fig, _, _ = ctx.mrr.plot_DSD_by_range(
         TARGET_TIME,
         ranges=np.arange(500, 2500, 250),
     )
@@ -226,7 +231,7 @@ def plot_microphysical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_rain_process_2d(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_rain_process_in_layer_2D(
+    fig, _, _ = ctx.mrr.plot_rain_process_in_layer_2D(
         target_datetime=PERIOD,
         layer=LAYER,
         x="Dm",
@@ -240,7 +245,7 @@ def plot_rain_process_2d(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_event_scatter(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_event_scatter(
+    fig, _, _ = ctx.mrr.plot_event_scatter(
         target_datetime=PERIOD,
         layer=LAYER,
         x="Dm",
@@ -253,7 +258,7 @@ def plot_event_scatter(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_region_scatter(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_region_scatter(
+    fig, _, _ = ctx.mrr.plot_region_scatter(
         target_datetime=PERIOD,
         z_bottom_m=LAYER[0],
         z_top_m=LAYER[1],
@@ -269,7 +274,7 @@ def plot_region_scatter(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_process_scatter(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_process_scatter(
+    fig, _, _ = ctx.mrr.plot_process_scatter(
         classified=ctx.fixed_classified,
         process=ctx.representative_process,
         target_datetime=PERIOD,
@@ -284,7 +289,7 @@ def plot_process_scatter(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_event_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_event_vertical_percent_profiles(
+    fig, _, _ = ctx.mrr.plot_event_vertical_percent_profiles(
         target_datetime=PERIOD,
         layer=LAYER,
         variables=("Dm", "Nw", "LWC"),
@@ -294,7 +299,7 @@ def plot_event_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_process_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_process_vertical_percent_profiles(
+    fig, _, _ = ctx.mrr.plot_process_vertical_percent_profiles(
         classified=ctx.fixed_classified,
         process=ctx.representative_process,
         target_datetime=PERIOD,
@@ -306,7 +311,7 @@ def plot_process_vertical_profiles(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_layer_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_rain_process_in_layer_hexagram(
+    fig, _, _ = ctx.mrr.plot_rain_process_in_layer_hexagram(
         analysis=ctx.fixed_analysis,
         alpha_hexagram=0.5,
         cmap="viridis",
@@ -315,7 +320,7 @@ def plot_layer_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_processes_evolution(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_processes_evolution(
+    fig, _, _ = ctx.mrr.plot_processes_evolution(
         classified=ctx.fixed_classified,
         analysis=ctx.fixed_analysis,
         figsize=(14, 10),
@@ -328,7 +333,7 @@ def plot_processes_evolution(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_classified_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_classified_processes_on_hexagram(
+    fig, _, _ = ctx.mrr.plot_classified_processes_on_hexagram(
         classified=ctx.fixed_classified,
         analysis=ctx.fixed_analysis,
         show_background=True,
@@ -343,7 +348,7 @@ def plot_classified_hexagram(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_sliding_column_process(ctx: PlotContext, output_dir: Path) -> Path:
-    fig, _ = ctx.mrr.plot_sliding_column_process(
+    fig, _, _ = ctx.mrr.plot_sliding_column_process(
         sliding_df=ctx.sliding_df,
         figsize=(10, 6),
     )
@@ -358,7 +363,7 @@ def plot_sliding_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
             if label not in {"unknown", "no_data", "steady_or_weak"}
         }
     )[:2]
-    fig, _ = ctx.mrr.plot_sliding_process_scatter_compare(
+    fig, _, _ = ctx.mrr.plot_sliding_process_scatter_compare(
         sliding_df=ctx.sliding_df,
         processes=selected or None,
         show_centroids=True,
@@ -369,7 +374,7 @@ def plot_sliding_scatter_compare(ctx: PlotContext, output_dir: Path) -> Path:
 
 def plot_fused_quicklook(ctx: PlotContext, output_dir: Path) -> Path:
     fused_df = _fused_df_from_sliding(ctx.sliding_df)
-    fig, _ = plot_fused_process_quicklook(
+    fig, _, _ = plot_fused_process_quicklook(
         ctx.sliding_df,
         fused_df,
         processes=QUICKLOOK_PROCESSES,
@@ -379,7 +384,7 @@ def plot_fused_quicklook(ctx: PlotContext, output_dir: Path) -> Path:
 
 
 def plot_hexagram_process(ctx: PlotContext, output_dir: Path) -> Path:
-    fig = plot_process_to_hexagram(
+    fig, _, _ = plot_process_to_hexagram(
         process="activation",
         k=11,
         tol_center=0.15,
