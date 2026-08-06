@@ -24,11 +24,11 @@ matplotlib.use("Agg")
 
 QUICKLOOK_PROCESSES = [
     "breakup",
-    "growth_depletion",
-    "growth_depletion_loss",
-    "growth_depletion_gain",
+    "coalescence",
+    "coalescence_loss",
+    "coalescence_gain",
     "activation",
-    "evaporation",
+    "evaporation_strong",
     "growth",
 ]
 

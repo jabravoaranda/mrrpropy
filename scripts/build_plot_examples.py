@@ -34,11 +34,11 @@ PERIOD = (dt.datetime(2025, 10, 29, 19, 23, 0), dt.datetime(2025, 10, 29, 19, 33
 LAYER = (1000.0, 2000.0)
 QUICKLOOK_PROCESSES = [
     "breakup",
-    "growth_depletion",
-    "growth_depletion_loss",
-    "growth_depletion_gain",
+    "coalescence",
+    "coalescence_loss",
+    "coalescence_gain",
     "activation",
-    "evaporation",
+    "evaporation_strong",
     "growth",
 ]
 

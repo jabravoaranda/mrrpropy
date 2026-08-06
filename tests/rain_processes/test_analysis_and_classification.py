@@ -341,12 +341,12 @@ def test_detect_column_process_episodes_from_sliding():
             "range_top_m": [2000.0] * 10,
             "range": [1500.0] * 10,
             "proc_label": [
-                "evaporation",
-                "evaporation",
-                "evaporation",
-                "evaporation",
-                "evaporation",
-                "evaporation",
+                "evaporation_strong",
+                "evaporation_strong",
+                "evaporation_strong",
+                "evaporation_strong",
+                "evaporation_strong",
+                "evaporation_strong",
                 "unknown",
                 "unknown",
                 "activation",
@@ -379,6 +379,6 @@ def test_detect_column_process_episodes_from_sliding():
 
     assert isinstance(episodes, pd.DataFrame)
     assert len(episodes) == 1
-    assert episodes.loc[0, "proc_label"] == "evaporation"
+    assert episodes.loc[0, "proc_label"] == "evaporation_strong"
     assert episodes.loc[0, "n_profiles"] == 6
     assert episodes.loc[0, "duration_seconds"] == pytest.approx(60.0)

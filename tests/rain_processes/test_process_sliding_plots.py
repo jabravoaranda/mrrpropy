@@ -59,7 +59,7 @@ def test_plot_sliding_column_process_marker_mode_square():
         {
             "time": pd.to_datetime(["2025-10-29 19:23", "2025-10-29 19:24"]),
             "range": [1000.0, 1100.0],
-            "proc_label": ["breakup", "growth_depletion"],
+            "proc_label": ["breakup", "coalescence"],
             "proc_strength": [1.0, 1.0],
         }
     )
@@ -74,6 +74,7 @@ def test_plot_sliding_column_process_marker_mode_square():
         subject,
         sliding_df=sliding_df,
         marker_mode="square",
+        render_mode="markers",
         scale_by_strength=False,
     )
 
@@ -91,6 +92,36 @@ def test_plot_sliding_column_process_marker_mode_square():
 
     plt.close(fig_process)
     plt.close(fig_square)
+
+
+def test_plot_sliding_column_process_square_defaults_to_cells():
+    subject = SimpleNamespace(
+        plot_cfg=SimpleNamespace(dpi=100, figsize_profiles=(6, 4)),
+        raprompro=None,
+    )
+    sliding_df = pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2025-10-29 19:23", "2025-10-29 19:24"]),
+            "range": [1000.0, 1100.0],
+            "proc_label": ["breakup", "coalescence"],
+            "proc_strength": [1.0, 1.0],
+        }
+    )
+
+    fig, ax, _ = process_plotting.plot_sliding_column_process(
+        subject,
+        sliding_df=sliding_df,
+        marker_mode="square",
+        scale_by_strength=False,
+    )
+
+    assert len(ax.collections) == 2
+    for collection in ax.collections:
+        path = collection.get_paths()[0].vertices
+        assert np.isclose(path[:, 0].max() - path[:, 0].min(), 0.000638888888)
+        assert np.isclose(path[:, 1].max() - path[:, 1].min(), 0.092)
+
+    plt.close(fig)
 
 
 def test_plot_sliding_column_process(
@@ -181,11 +212,11 @@ def test_plot_sliding_column_process_hexagram_colors(
         color_mode="hexagram",
         processes=[
             "breakup",
-            "growth_depletion",
-            "growth_depletion_loss",
-            "growth_depletion_gain",
+            "coalescence",
+            "coalescence_loss",
+            "coalescence_gain",
             "activation",
-            "evaporation",
+            "evaporation_strong",
             "growth",
         ],
         savefig=True,

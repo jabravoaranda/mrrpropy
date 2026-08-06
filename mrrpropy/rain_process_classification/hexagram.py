@@ -14,6 +14,7 @@ from mrrpropy.rain_process_classification.rain_process_info import (
     PROCESS_MARKERS,
     PROCESS_SIGNATURES,
     ProcessSignature,
+    canonical_process_label,
 )
 
 FloatArray: TypeAlias = NDArray[np.float64]
@@ -786,8 +787,9 @@ def get_process_hexagram_mask(
     Parameters
     ----------
     process : str
-        Nombre del proceso ('breakup', 'growth_depletion', 'evaporation',
-        'growth', 'activation', ...).
+        Canonical process name such as ``breakup``, ``coalescence``,
+        ``evaporation_strong``, ``growth`` or ``activation``. Legacy aliases
+        are accepted and resolved before lookup.
     k : int
         Parámetro del hexagrama.
     tol_center : float, optional
@@ -802,6 +804,7 @@ def get_process_hexagram_mask(
     hex_assets : dict
         Diccionario devuelto por get_hexagram_assets.
     """
+    process = canonical_process_label(process)
     if process not in PROCESS_SIGNATURES:
         valid = ", ".join(PROCESS_SIGNATURES.keys())
         raise ValueError(f"Proceso desconocido: {process!r}. Válidos: {valid}")

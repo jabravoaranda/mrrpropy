@@ -5,6 +5,9 @@ import xarray as xr
 from mrrpropy.rain_process_classification import (
     rain_process_algorithm as process_analysis,
 )
+from mrrpropy.rain_process_classification.rain_process_info import (
+    canonical_process_label,
+)
 from mrrpropy.utils import compute_monotonic_trend
 
 
@@ -18,6 +21,14 @@ def test_compute_monotonic_trend_strictly_increasing():
     assert trend["slope_ts"] > 0.0
     assert trend["sign_tau"] == 1
     assert trend["strength_tau"] > 0.9
+
+
+def test_canonical_process_label_resolves_legacy_names():
+    assert canonical_process_label("growth_depletion") == "coalescence"
+    assert canonical_process_label("growth_depletion_gain") == "coalescence_gain"
+    assert canonical_process_label("growth_depletion_loss") == "coalescence_loss"
+    assert canonical_process_label("condensation") == "activation"
+    assert canonical_process_label("evaporation") == "evaporation_strong"
 
 
 def test_compute_monotonic_trend_strictly_decreasing():
@@ -129,11 +140,11 @@ def test_classify_rain_process_uses_tau_signatures():
         min_tau_strength=0.1,
     )
 
-    assert list(classified["proc_label"].values) == ["breakup", "growth_depletion"]
+    assert list(classified["proc_label"].values) == ["breakup", "coalescence"]
     assert classified.attrs["classification_basis"] == "canonical_trend_sign"
 
 
-def test_classify_rain_process_recognizes_growth_depletion_gain_and_loss():
+def test_classify_rain_process_recognizes_coalescence_gain_and_loss():
     analysis = xr.Dataset(
         coords={"time": np.array([0, 1], dtype=int)},
         attrs={
@@ -169,8 +180,8 @@ def test_classify_rain_process_recognizes_growth_depletion_gain_and_loss():
     )
 
     assert list(classified["proc_label"].values) == [
-        "growth_depletion_loss",
-        "growth_depletion_gain",
+        "coalescence_loss",
+        "coalescence_gain",
     ]
 
 

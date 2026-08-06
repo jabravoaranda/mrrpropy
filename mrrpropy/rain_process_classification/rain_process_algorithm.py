@@ -14,6 +14,7 @@ from mrrpropy.rain_process_classification.rain_process_info import (
     PROCESS_MARKERS as _PROCESS_MARKERS,
     PROCESS_SIGNATURES as _PROCESS_SIGNATURES,
     ProcessSignature,
+    canonical_process_label,
 )
 from mrrpropy.rain_process_classification.hexagram import (
     build_rgb_from_unit_scores,
@@ -1000,9 +1001,15 @@ def build_process_dynamics_dataframe(
         None,
     )
     if velocity_name is not None:
-        velocity_top = top_level[velocity_name].sel(time=base["time"]).values.astype(float)
-        velocity_bottom = bottom_level[velocity_name].sel(time=base["time"]).values.astype(float)
-        velocity_mean = layer_mean[velocity_name].sel(time=base["time"]).values.astype(float)
+        velocity_top = (
+            top_level[velocity_name].sel(time=base["time"]).values.astype(float)
+        )
+        velocity_bottom = (
+            bottom_level[velocity_name].sel(time=base["time"]).values.astype(float)
+        )
+        velocity_mean = (
+            layer_mean[velocity_name].sel(time=base["time"]).values.astype(float)
+        )
         df["v_mean_top"] = velocity_top
         df["v_mean_bottom"] = velocity_bottom
         df["v_mean_layer_mean"] = velocity_mean
@@ -1028,7 +1035,9 @@ def build_process_dynamics_dataframe(
             if passthrough_name == "overlaps_bb":
                 df[passthrough_name] = base[passthrough_name].values.astype(bool)
             else:
-                df[passthrough_name] = pd.to_numeric(base[passthrough_name].values, errors="coerce")
+                df[passthrough_name] = pd.to_numeric(
+                    base[passthrough_name].values, errors="coerce"
+                )
 
     for sign_name in ("sign_R", "sign_G", "sign_B"):
         if sign_name in base:
@@ -1258,6 +1267,103 @@ def _build_range_centered_sliding_windows(
     ]
 
 
+def _ze_signal_matrix(
+    ds: xr.Dataset,
+    *,
+    period: tuple[datetime, datetime],
+    ze_th: float,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    if "Ze" not in ds:
+        return None
+    ze = ds["Ze"].sel(time=slice(period[0], period[1]))
+    if ze.sizes.get("time", 0) == 0 or ze.sizes.get("range", 0) == 0:
+        return np.asarray([], dtype=float), np.zeros((0, 0), dtype=bool)
+    ze = ze.transpose("time", "range")
+    ranges_m = np.asarray(ze["range"].values, dtype=float)
+    values = np.asarray(ze.values, dtype=float)
+    signal = np.isfinite(values) & (values > float(ze_th))
+    return ranges_m, signal
+
+
+def _window_has_enough_ze_signal(
+    ze_signal: tuple[np.ndarray, np.ndarray] | None,
+    *,
+    z_bottom_m: float,
+    z_top_m: float,
+    min_points_trend: int,
+) -> bool:
+    if ze_signal is None:
+        return True
+    ranges_m, signal = ze_signal
+    if ranges_m.size == 0 or signal.size == 0:
+        return False
+    range_mask = (ranges_m >= float(z_bottom_m)) & (ranges_m <= float(z_top_m))
+    if not np.any(range_mask):
+        return False
+    n_valid = np.sum(signal[:, range_mask], axis=1)
+    return bool(np.any(n_valid >= int(min_points_trend)))
+
+
+def _no_data_sliding_window_frame(
+    ds: xr.Dataset,
+    *,
+    period: tuple[datetime, datetime],
+    window_id: int,
+    range_m: float,
+    range_bottom_m: float,
+    range_top_m: float,
+    variables: tuple[str, ...],
+) -> pd.DataFrame:
+    ds_event = ds.sel(time=slice(period[0], period[1]))
+    time_values = pd.to_datetime(ds_event["time"].values)
+    frame = pd.DataFrame(
+        {
+            "time": time_values,
+            "proc_label": "no_data",
+            "proc_strength": np.nan,
+            "minutes": np.nan,
+            "R": np.nan,
+            "G": np.nan,
+            "B": np.nan,
+            "hex_x": np.nan,
+            "hex_y": np.nan,
+            "hex_area": np.nan,
+            "sign_R": 0,
+            "sign_G": 0,
+            "sign_B": 0,
+            "window_id": int(window_id),
+            "range_bottom_m": float(range_bottom_m),
+            "range_top_m": float(range_top_m),
+            "range": float(range_m),
+        }
+    )
+    for variable_name in variables:
+        for suffix in (
+            "top",
+            "bottom",
+            "layer_mean",
+            "delta",
+            "delta_pct",
+            "rate_per_km",
+        ):
+            frame[f"{variable_name}_{suffix}"] = np.nan
+        for prefix in (
+            "tau",
+            "p",
+            "ts",
+            "intercept_ts",
+            "strength",
+            "trend_mag",
+            "trend_strength",
+            "trend_score",
+            "trend_p",
+        ):
+            frame[f"{prefix}_{variable_name}"] = np.nan
+        frame[f"sign_{variable_name}"] = 0
+        frame[f"trend_sign_{variable_name}"] = 0
+    return frame
+
+
 def _detect_process_runs_from_sliding(
     sliding_df: pd.DataFrame,
     *,
@@ -1277,9 +1383,10 @@ def _detect_process_runs_from_sliding(
 
     rows: list[dict[str, object]] = []
     df = sliding_df.sort_values(["window_id", "time"]).copy()
+    df["proc_label"] = df["proc_label"].map(canonical_process_label)
 
     for window_id, group in df.groupby("window_id", sort=True):
-        labels = group["proc_label"].astype(str).to_numpy()
+        labels = group["proc_label"].to_numpy(dtype=object)
         times = pd.to_datetime(group["time"]).to_numpy()
         if labels.size == 0:
             continue
@@ -1523,8 +1630,30 @@ def sliding_rain_classification(
         }
         return empty
 
+    ze_signal = _ze_signal_matrix(ds, period=period, ze_th=ze_th)
+    resolved_min_points = _resolve_min_points(min_points_trend=min_points_trend)
+
     frames: list[pd.DataFrame] = []
     for window_id, (range_m, range_bottom_m, range_top_m) in enumerate(windows):
+        if not _window_has_enough_ze_signal(
+            ze_signal,
+            z_bottom_m=range_bottom_m,
+            z_top_m=range_top_m,
+            min_points_trend=resolved_min_points,
+        ):
+            frames.append(
+                _no_data_sliding_window_frame(
+                    ds,
+                    period=period,
+                    window_id=window_id,
+                    range_m=range_m,
+                    range_bottom_m=range_bottom_m,
+                    range_top_m=range_top_m,
+                    variables=vars_trend,
+                )
+            )
+            continue
+
         analysis = layer_rain_classification(
             subject,
             period=period,
@@ -1533,7 +1662,7 @@ def sliding_rain_classification(
             k=k,
             ze_th=ze_th,
             tau_zero_tol=tau_zero_tol,
-            min_points_trend=min_points_trend,
+            min_points_trend=resolved_min_points,
             vars_trend=vars_trend,
         )
         classified = classify_rain_process(

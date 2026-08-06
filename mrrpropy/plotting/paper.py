@@ -20,7 +20,10 @@ from mrrpropy.rain_process_classification.rain_process_algorithm import (
 )
 from mrrpropy.rain_process_classification.rain_process_info import (
     PROCESS_CODES,
+    PROCESS_COLORS,
     PROCESS_MARKERS,
+    PROCESS_ORDER,
+    canonical_process_label,
 )
 
 
@@ -29,23 +32,12 @@ class SupportsPaperPlotting(_spectra.SupportsSpectralAccess, Protocol):
     raprompro: xr.Dataset | None
     plot_cfg: Any
 
-    def _is_processed(self) -> bool: ...
+    def _is_processed(self) -> bool:
+        ...
 
+    def plot_sliding_column_process(self, *args: Any, **kwargs: Any) -> Any:
+        ...
 
-PROCESS_COLORS: dict[str, str] = {
-    "breakup": "#12af54",
-    "breakup_gain": "#13d7d7",
-    "breakup_loss": "#24ca24",
-    "growth_depletion": "#1b9e77",
-    "growth_depletion_gain": "#f808d0",
-    "growth_depletion_loss": "#ff0000",
-    "evaporation": "#000000",
-    "growth": "#91209b",
-    "activation": "#66a61e",
-    "steady_or_weak": "#8f8f8f",
-    "unknown": "#666666",
-    "no_data": "#bdbdbd",
-}
 
 VARIABLE_LABELS: dict[str, str] = {
     "Dm": r"$D_m$ [mm]",
@@ -84,7 +76,9 @@ def _set_data_xlim(ax: Axes, values: np.ndarray, *, zero_floor: bool = False) ->
     lower = float(np.min(finite))
     upper = float(np.max(finite))
     span = upper - lower
-    padding = max(span * 0.08, np.finfo(float).eps)
+    padding = span * 0.08
+    if padding < float(np.finfo(float).eps):
+        padding = float(np.finfo(float).eps)
     lower -= padding
     upper += padding
     if zero_floor and lower >= 0.0:
@@ -94,11 +88,13 @@ def _set_data_xlim(ax: Axes, values: np.ndarray, *, zero_floor: bool = False) ->
     ax.set_xlim(lower, upper)
 
 
-def _save(fig: Figure, path: Path | None, dpi: int) -> Path | None:
+def _save(
+    fig: Figure, path: Path | None, dpi: int, *, transparent: bool = False
+) -> Path | None:
     if path is None:
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    fig.savefig(path, dpi=dpi, bbox_inches="tight", transparent=transparent)
     return path
 
 
@@ -114,28 +110,14 @@ def _to_dataframe(sliding_df: xr.Dataset | pd.DataFrame) -> pd.DataFrame:
     if "time" in df.columns:
         df["time"] = pd.to_datetime(df["time"])
     if "proc_label" in df.columns:
-        df["proc_label"] = df["proc_label"].astype(str)
+        df["proc_label"] = df["proc_label"].map(canonical_process_label)
     return df
 
 
 def _process_order(labels: pd.Series | np.ndarray) -> list[str]:
-    preferred = [
-        "activation",
-        "growth",
-        "growth_depletion_gain",
-        "growth_depletion",
-        "growth_depletion_loss",
-        "breakup",
-        "breakup_gain",
-        "breakup_loss",
-        "evaporation",
-        "steady_or_weak",
-        "unknown",
-        "no_data",
-    ]
     present = [str(label) for label in pd.unique(labels) if str(label)]
-    return [label for label in preferred if label in present] + [
-        label for label in present if label not in preferred
+    return [label for label in PROCESS_ORDER if label in present] + [
+        label for label in present if label not in PROCESS_ORDER
     ]
 
 
@@ -161,7 +143,9 @@ def _approximate_kde_domain(
     if finite.empty:
         return (0.0, 1.0)
 
-    quantile_domain = finite[value_col].quantile(fallback_quantiles).to_numpy(dtype=float)
+    quantile_domain = (
+        finite[value_col].quantile(fallback_quantiles).to_numpy(dtype=float)
+    )
     if sigma is None:
         lower, upper = quantile_domain
     else:
@@ -219,7 +203,9 @@ def plot_quicklook_comparison(
         raise KeyError(f"Variable '{processed_name}' not found in raprompro dataset.")
 
     arrays = [subject.ds[raw_name], subject.raprompro[processed_name]]
-    fig, axes = plt.subplots(ncols=2, figsize=figsize, sharey=True, constrained_layout=True)
+    fig, axes = plt.subplots(
+        ncols=2, figsize=figsize, sharey=True, constrained_layout=True
+    )
     for ax, da, label in zip(axes, arrays, ("Raw", "Processed")):
         mesh = cast(Any, da.plot)
         mesh(
@@ -256,13 +242,18 @@ def plot_quicklook_comparison(
                 Line2D([], [], color="black", linewidth=2, label="Raw"),
                 Line2D([], [], color="black", linewidth=2, label="Processed"),
             ],
-            loc="upper right", fontsize=7, frameon=True,
+            loc="upper right",
+            fontsize=7,
+            frameon=True,
         )
 
     out = None
     if savefig:
         outdir = Path.cwd() if output_dir is None else Path(output_dir)
-        stem = filename or f"{Path(subject.path).stem}_{variable}_raw_processed_quicklook.png"
+        stem = (
+            filename
+            or f"{Path(subject.path).stem}_{variable}_raw_processed_quicklook.png"
+        )
         out = _save(fig, outdir / stem, dpi or subject.plot_cfg.dpi)
     return fig, axes, out
 
@@ -304,11 +295,15 @@ def plot_processed_quicklook(
     _paper_grid(ax)
     ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=6))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
-    out = _save(
-        fig,
-        (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
-        dpi or subject.plot_cfg.dpi,
-    ) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi or subject.plot_cfg.dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, ax, out
 
 
@@ -335,14 +330,18 @@ def plot_microphysical_properties_triple(
 
     profile = ds.sel(time=np.datetime64(target_datetime), method="nearest")
     heights_km = profile["range"].values.astype(float) / 1000.0
-    fig, axes = plt.subplots(ncols=3, figsize=figsize, sharey=True, constrained_layout=True)
+    fig, axes = plt.subplots(
+        ncols=3, figsize=figsize, sharey=True, constrained_layout=True
+    )
     colors = kwargs.get("colors", ("#0072B2", "#009E73", "#D55E00"))
     x_limits = kwargs.get("x_limits")
     for ax, variable, color in zip(axes, variables, colors):
         values = np.asarray(profile[variable].values, dtype=float)
         visible = np.isfinite(heights_km)
         if y_limits is not None:
-            visible &= (heights_km >= float(y_limits[0])) & (heights_km <= float(y_limits[1]))
+            visible &= (heights_km >= float(y_limits[0])) & (
+                heights_km <= float(y_limits[1])
+            )
         ax.plot(
             values,
             heights_km,
@@ -367,7 +366,9 @@ def plot_microphysical_properties_triple(
     out = None
     if savefig:
         outdir = Path.cwd() if output_dir is None else Path(output_dir)
-        time_tag = str(np.datetime_as_string(profile["time"].values, unit="s")).replace(":", "")
+        time_tag = str(np.datetime_as_string(profile["time"].values, unit="s")).replace(
+            ":", ""
+        )
         stem = filename or f"{Path(subject.path).stem}_mpp_triple_{time_tag}.png"
         out = _save(fig, outdir / stem, dpi or subject.plot_cfg.dpi)
     return fig, axes, out
@@ -421,7 +422,15 @@ def plot_single_column_events(
     _paper_grid(ax)
     ax.legend(loc="best", fontsize=7, frameon=True)
 
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, ax, out
 
 
@@ -437,6 +446,7 @@ def plot_microphysical_tau_triple(
     output_dir: Path | None = None,
     filename: str = "mpp_tau_triple.png",
     dpi: int = 300,
+    transparent: bool = False,
 ) -> tuple[Figure, np.ndarray, Path | None]:
     """Three MPP profiles colored point-by-point by Kendall/Thiel score."""
     df = _to_dataframe(sliding_df)
@@ -445,7 +455,12 @@ def plot_microphysical_tau_triple(
     target = pd.Timestamp(target_datetime)
     nearest = df.loc[(df["time"] - target).abs().idxmin(), "time"]
     column = df[df["time"] == nearest].copy()
-    column["range"] = pd.to_numeric(column["range"], errors="coerce")
+    height_col = next(
+        (name for name in ("range", "z_center_m", "z_center") if name in column), None
+    )
+    if height_col is None:
+        raise KeyError("sliding_df must contain 'range', 'z_center_m', or 'z_center'.")
+    column["range"] = pd.to_numeric(column[height_col], errors="coerce")
     column = column[np.isfinite(column["range"])].sort_values("range")
     if y_limits is not None:
         lower_m, upper_m = (float(value) * 1000.0 for value in y_limits)
@@ -453,7 +468,9 @@ def plot_microphysical_tau_triple(
     if column.empty:
         raise ValueError("No finite column data available at the selected time.")
 
-    fig, axes = plt.subplots(1, 3, figsize=figsize, sharey=True, constrained_layout=True)
+    fig, axes = plt.subplots(
+        1, 3, figsize=figsize, sharey=True, constrained_layout=True
+    )
     cmap = plt.get_cmap("coolwarm")
     norm = plt.Normalize(-1.0, 1.0)
     for ax, variable in zip(axes, variables):
@@ -471,15 +488,22 @@ def plot_microphysical_tau_triple(
         )
         score_col = f"{score_prefix}_{variable}"
         if value_col is None or score_col not in column:
-            raise KeyError(f"Missing data for '{variable}' or '{score_col}' for tau MPP plot.")
+            raise KeyError(
+                f"Missing data for '{variable}' or '{score_col}' for tau MPP plot."
+            )
         values = pd.to_numeric(column[value_col], errors="coerce").to_numpy(float)
         scores = pd.to_numeric(column[score_col], errors="coerce").to_numpy(float)
         height = column["range"].to_numpy(float) / 1000.0
         valid = np.isfinite(values) & np.isfinite(scores) & np.isfinite(height)
         ax.plot(values[valid], height[valid], color="#777777", linewidth=0.7, alpha=0.7)
         ax.scatter(
-            values[valid], height[valid], c=np.clip(scores[valid], -1.0, 1.0),
-            cmap=cmap, norm=norm, s=30, edgecolors="none",
+            values[valid],
+            height[valid],
+            c=np.clip(scores[valid], -1.0, 1.0),
+            cmap=cmap,
+            norm=norm,
+            s=30,
+            edgecolors="none",
         )
         _set_data_xlim(ax, values[valid], zero_floor=variable == "LWC")
         ax.set_xlabel(VARIABLE_LABELS.get(variable, variable))
@@ -488,7 +512,16 @@ def plot_microphysical_tau_triple(
     if y_limits is not None:
         for ax in axes:
             ax.set_ylim(*y_limits)
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+            transparent=transparent,
+        )
+        if savefig
+        else None
+    )
     return fig, axes, out
 
 
@@ -552,7 +585,15 @@ def plot_process_binary_points(
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     _paper_grid(ax)
 
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, ax, out
 
 
@@ -594,7 +635,11 @@ def plot_column_process_scan_with_spectrogram(
     axes[0].legend(loc="best", fontsize=7, frameon=True)
 
     if {"R", "G", "B"}.issubset(df.columns):
-        rgb = df[["R", "G", "B"]].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+        rgb = (
+            df[["R", "G", "B"]]
+            .apply(pd.to_numeric, errors="coerce")
+            .to_numpy(dtype=float)
+        )
         finite_rgb = np.isfinite(rgb).all(axis=1)
         axes[1].scatter(
             df.loc[finite_rgb, "time"],
@@ -632,7 +677,12 @@ def plot_column_process_scan_with_spectrogram(
     axes[2].imshow(
         spec2d,
         aspect="auto",
-        extent=(float(vel[0]), float(vel[-1]), float(ranges[0]) / 1000.0, float(ranges[-1]) / 1000.0),
+        extent=(
+            float(vel[0]),
+            float(vel[-1]),
+            float(ranges[0]) / 1000.0,
+            float(ranges[-1]) / 1000.0,
+        ),
         origin="lower",
         cmap="viridis",
     )
@@ -679,14 +729,20 @@ def plot_column_process_scan(
     fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
     labels = _process_order(df["proc_label"])
     rgb_columns = ("R", "G", "B")
-    if color_mode.lower() in {"hex", "rgb"} and not set(rgb_columns).issubset(df.columns):
+    if color_mode.lower() in {"hex", "rgb"} and not set(rgb_columns).issubset(
+        df.columns
+    ):
         if {"tau_Dm", "tau_Nw", "tau_LWC"}.issubset(df.columns):
             df = df.copy()
-            for channel, score_column in zip(rgb_columns, ("tau_Dm", "tau_Nw", "tau_LWC")):
+            for channel, score_column in zip(
+                rgb_columns, ("tau_Dm", "tau_Nw", "tau_LWC")
+            ):
                 scores = pd.to_numeric(df[score_column], errors="coerce")
                 df[channel] = 0.5 * (scores.clip(-1.0, 1.0) + 1.0)
     if color_mode.lower() in {"hex", "rgb"} and set(rgb_columns).issubset(df.columns):
-        rgb = df[list(rgb_columns)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+        rgb = (
+            df[list(rgb_columns)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+        )
         valid = np.isfinite(rgb).all(axis=1)
         ax.scatter(
             df.loc[valid, "time"],
@@ -717,7 +773,15 @@ def plot_column_process_scan(
     if show_legend and color_mode.lower() not in {"hex", "rgb"} and labels:
         ax.legend(loc="best", fontsize=9, frameon=True)
     _paper_grid(ax)
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, ax, out
 
 
@@ -752,7 +816,15 @@ def plot_sliding_column_process_paper(
     ax.set_title("")
     ax.set_ylabel("Height [km]")
     _paper_grid(ax)
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, ax, out
 
 
@@ -774,20 +846,31 @@ def plot_quicklook_cps_hex(
     """Three-panel quicklook, canonical CPS, and RGB/hex CPS view."""
     df = _to_dataframe(sliding_df)
     if processes is not None:
-        df = df[df["proc_label"].isin([str(value) for value in processes])].copy()
+        selected = [canonical_process_label(value) for value in processes]
+        df = df[df["proc_label"].isin(selected)].copy()
     fig, axes = plt.subplots(1, 3, figsize=figsize, constrained_layout=True)
-    if variable not in subject.raprompro:
+    ds = subject.raprompro
+    if ds is None:
+        raise RuntimeError("Processed dataset is not loaded.")
+    if variable not in ds:
         raise KeyError(f"Processed dataset missing '{variable}'.")
-    quicklook = subject.raprompro[variable]
+    quicklook = ds[variable]
     if "range" in quicklook.coords:
         quicklook = quicklook.assign_coords(range=quicklook["range"] / 1000.0)
     cast(Any, quicklook.plot)(
-        ax=axes[0], x="time", y="range", add_colorbar=False,
-        cmap="viridis", vmin=vmin, vmax=vmax,
+        ax=axes[0],
+        x="time",
+        y="range",
+        add_colorbar=False,
+        cmap="viridis",
+        vmin=vmin,
+        vmax=vmax,
     )
     axes[0].set_xlabel("Time")
     axes[0].set_ylabel("Height [km]")
-    axes[0].set_ylim(*(value / 1000.0 for value in range_limits)) if range_limits else None
+    axes[0].set_ylim(
+        *(value / 1000.0 for value in range_limits)
+    ) if range_limits else None
     axes[0].xaxis.set_major_locator(mdates.AutoDateLocator(minticks=4, maxticks=6))
     axes[0].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
     _paper_grid(axes[0])
@@ -811,17 +894,27 @@ def plot_quicklook_cps_hex(
     _paper_grid(axes[1])
 
     rgb_columns = ("R", "G", "B")
-    if not set(rgb_columns).issubset(df.columns) and {"tau_Dm", "tau_Nw", "tau_LWC"}.issubset(df.columns):
+    if not set(rgb_columns).issubset(df.columns) and {
+        "tau_Dm",
+        "tau_Nw",
+        "tau_LWC",
+    }.issubset(df.columns):
         df = df.copy()
         for channel, score_column in zip(rgb_columns, ("tau_Dm", "tau_Nw", "tau_LWC")):
             scores = pd.to_numeric(df[score_column], errors="coerce")
             df[channel] = 0.5 * (scores.clip(-1.0, 1.0) + 1.0)
     if set(rgb_columns).issubset(df.columns):
-        rgb = df[list(rgb_columns)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+        rgb = (
+            df[list(rgb_columns)].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+        )
         valid = np.isfinite(rgb).all(axis=1)
         axes[2].scatter(
-            df.loc[valid, "time"], df.loc[valid, "range"] / 1000.0,
-            s=20, marker="s", c=np.clip(rgb[valid], 0.0, 1.0), edgecolors="none",
+            df.loc[valid, "time"],
+            df.loc[valid, "range"] / 1000.0,
+            s=20,
+            marker="s",
+            c=np.clip(rgb[valid], 0.0, 1.0),
+            edgecolors="none",
         )
     axes[2].set_xlabel("Time")
     axes[2].set_ylabel("")
@@ -830,9 +923,12 @@ def plot_quicklook_cps_hex(
     if range_limits:
         axes[1].set_ylim(*(value / 1000.0 for value in range_limits))
         axes[2].set_ylim(*(value / 1000.0 for value in range_limits))
-    quicklook_times = pd.to_datetime(subject.raprompro["time"].values)
+    quicklook_times = pd.to_datetime(ds["time"].values)
     scan_times = pd.to_datetime(df["time"])
-    common_xlim = (min(quicklook_times.min(), scan_times.min()), max(quicklook_times.max(), scan_times.max()))
+    common_xlim = (
+        min(quicklook_times.min(), scan_times.min()),
+        max(quicklook_times.max(), scan_times.max()),
+    )
     for ax in axes:
         ax.set_xlim(*common_xlim)
         ax.tick_params(axis="both", labelsize=10)
@@ -843,7 +939,15 @@ def plot_quicklook_cps_hex(
     axes[1].set_ylabel("")
     axes[2].set_ylabel("")
     _paper_grid(axes[2])
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, axes, out
 
 
@@ -873,13 +977,26 @@ def plot_paper_spectrogram(
         aspect="auto",
         origin="lower",
         cmap=cmap,
-        extent=(float(velocity[0]), float(velocity[-1]), float(ranges[0]) / 1000.0, float(ranges[-1]) / 1000.0),
+        extent=(
+            float(velocity[0]),
+            float(velocity[-1]),
+            float(ranges[0]) / 1000.0,
+            float(ranges[-1]) / 1000.0,
+        ),
     )
     ax.axvline(0.0, color="black", linestyle="--", linewidth=0.8)
     ax.set_xlabel(r"Doppler velocity [m s$^{-1}$]")
     ax.set_ylabel("Height [km]")
     _paper_grid(ax)
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, ax, out
 
 
@@ -901,18 +1018,43 @@ def plot_process_kde_2x2(
     if process_col not in frame.columns:
         raise KeyError(f"frame must contain '{process_col}'.")
     df = frame.copy()
-    df[process_col] = df[process_col].astype(str)
-    colors = {label: PROCESS_COLORS.get(label, "#333333") for label in _process_order(df[process_col])}
+    df[process_col] = df[process_col].map(canonical_process_label)
+    colors = {
+        label: PROCESS_COLORS.get(label, "#333333")
+        for label in _process_order(df[process_col])
+    }
 
     fig, axes = plt.subplots(2, 2, figsize=figsize)
     for ax, variable in zip(axes.flat, variables):
         aliases = {
             "Dw": ("Dw", "Dm", "Dm_top", "Dm_layer_mean", "Dm_mean"),
-            "V": ("V", "W", "VEL", "v_mean_top", "v_mean_bottom", "V_layer_mean", "W_layer_mean", "VEL_layer_mean"),
+            "V": (
+                "V",
+                "W",
+                "VEL",
+                "v_mean_top",
+                "v_mean_bottom",
+                "V_layer_mean",
+                "W_layer_mean",
+                "VEL_layer_mean",
+            ),
             "LWC": ("LWC", "LWC_top", "LWC_bottom", "LWC_layer_mean", "LWC_mean"),
-            "N": ("N", "Nw", "Nw_top", "Nw_bottom", "N_layer_mean", "Nw_layer_mean", "Nw_mean"),
+            "N": (
+                "N",
+                "Nw",
+                "Nw_top",
+                "Nw_bottom",
+                "N_layer_mean",
+                "Nw_layer_mean",
+                "Nw_mean",
+            ),
         }
-        column = _resolve_var(df, aliases.get(variable, (variable, f"{variable}_layer_mean", f"{variable}_mean")))
+        column = _resolve_var(
+            df,
+            aliases.get(
+                variable, (variable, f"{variable}_layer_mean", f"{variable}_mean")
+            ),
+        )
         plot_df = df[[process_col, column]].copy()
         plot_df[column] = pd.to_numeric(plot_df[column], errors="coerce")
         plot_df = plot_df[np.isfinite(plot_df[column])]
@@ -946,14 +1088,19 @@ def plot_process_kde_2x2(
                 warn_singular=False,
             )
         ax.set_xlim(lower, upper)
-        ax.set_xlabel(VARIABLE_LABELS.get(variable, VARIABLE_LABELS.get(column, column)), fontsize=10)
+        ax.set_xlabel(
+            VARIABLE_LABELS.get(variable, VARIABLE_LABELS.get(column, column)),
+            fontsize=10,
+        )
         ax.set_ylabel("Density", fontsize=9)
         ax.tick_params(axis="both", labelsize=8)
         ax.set_title("")
         _paper_grid(ax)
 
     handles = [
-        Line2D([0], [0], color=color, linewidth=1.5, label=PROCESS_CODES.get(label, label))
+        Line2D(
+            [0], [0], color=color, linewidth=1.5, label=PROCESS_CODES.get(label, label)
+        )
         for label, color in colors.items()
     ]
     if handles:
@@ -967,7 +1114,15 @@ def plot_process_kde_2x2(
         )
     fig.tight_layout(rect=(0.0, 0.12, 1.0, 1.0))
 
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, axes, out
 
 
@@ -984,6 +1139,7 @@ def plot_process_distance_velocity_kdes(
     output_dir: Path | None = None,
     filename: str = "process_bb_distance_delta_v_kdes.png",
     dpi: int = 200,
+    show_legend: bool = False,
 ) -> tuple[Figure, np.ndarray, Path | None]:
     """KDE plots of bright-band distance and delta-v by process."""
     if process_col not in frame.columns:
@@ -992,13 +1148,31 @@ def plot_process_distance_velocity_kdes(
     df[process_col] = df[process_col].astype(str)
     bb_col = bb_distance_col or _resolve_var(
         df,
-        ("bb_distance_m", "BB_distance_m", "dist_bb_peak", "dist_bb_bottom", "distance_to_bb_m", "z_center_minus_bb_m"),
+        (
+            "bb_distance_m",
+            "BB_distance_m",
+            "dist_bb_peak",
+            "dist_bb_bottom",
+            "distance_to_bb_m",
+            "z_center_minus_bb_m",
+        ),
     )
     dv_col = delta_v_col or _resolve_var(
         df,
-        ("delta_v_mean", "delta_v_p50", "delta_v", "V_delta", "delta_V", "delta_velocity", "velocity_difference"),
+        (
+            "delta_v_mean",
+            "delta_v_p50",
+            "delta_v",
+            "V_delta",
+            "delta_V",
+            "delta_velocity",
+            "velocity_difference",
+        ),
     )
-    colors = {label: PROCESS_COLORS.get(label, "#333333") for label in _process_order(df[process_col])}
+    colors = {
+        label: PROCESS_COLORS.get(label, "#333333")
+        for label in _process_order(df[process_col])
+    }
 
     fig, axes = plt.subplots(ncols=2, figsize=figsize)
     for ax, column, label in zip(
@@ -1039,7 +1213,43 @@ def plot_process_distance_velocity_kdes(
         ax.set_title("")
         _paper_grid(ax)
 
-    fig.tight_layout()
+    if show_legend:
+        handles = [
+            Line2D(
+                [],
+                [],
+                color=color,
+                linewidth=1.8,
+                label=PROCESS_CODES.get(process, process),
+            )
+            for process, color in colors.items()
+            if df.loc[df[process_col] == process, [bb_col, dv_col]]
+            .apply(pd.to_numeric, errors="coerce")
+            .dropna(how="all")
+            .shape[0]
+        ]
+        if handles:
+            fig.legend(
+                handles=handles,
+                loc="lower center",
+                bbox_to_anchor=(0.5, 0.01),
+                ncol=min(4, len(handles)),
+                fontsize=8,
+                frameon=False,
+            )
+            fig.tight_layout(rect=(0.0, 0.16, 1.0, 1.0))
+        else:
+            fig.tight_layout()
+    else:
+        fig.tight_layout()
 
-    out = _save(fig, (Path.cwd() if output_dir is None else Path(output_dir)) / filename, dpi) if savefig else None
+    out = (
+        _save(
+            fig,
+            (Path.cwd() if output_dir is None else Path(output_dir)) / filename,
+            dpi,
+        )
+        if savefig
+        else None
+    )
     return fig, axes, out

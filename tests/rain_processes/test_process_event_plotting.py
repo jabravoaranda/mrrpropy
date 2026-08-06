@@ -47,9 +47,9 @@ def test_event_mode_omits_below_threshold_zero_and_unavailable_intensity_rows():
             ),
             "range": [1000.0, 1100.0, 1200.0, 1300.0, 1400.0],
             "proc_label": [
-                "evaporation",
-                "evaporation",
-                "evaporation",
+                "evaporation_strong",
+                "evaporation_strong",
+                "evaporation_strong",
                 "breakup",
                 "no_data",
             ],
@@ -64,11 +64,11 @@ def test_event_mode_omits_below_threshold_zero_and_unavailable_intensity_rows():
     )
     sliding_df.attrs["min_tau_strength"] = 0.3
 
-    fig, _ = plot_sliding_column_process(
+    fig, _, _ = plot_sliding_column_process(
         _Subject(),
         sliding_df=sliding_df,
         color_mode="event",
-        event_process="evaporation",
+        event_process="evaporation_strong",
     )
 
     plotted_points = sum(
@@ -92,8 +92,8 @@ def test_hexagram_mode_uses_pixelated_cells():
             ),
             "range": [1000.0, 1035.0, 1000.0, 1035.0],
             "proc_label": [
-                "evaporation",
-                "evaporation",
+                "evaporation_strong",
+                "evaporation_strong",
                 "activation",
                 "activation",
             ],
@@ -104,7 +104,7 @@ def test_hexagram_mode_uses_pixelated_cells():
         }
     )
 
-    fig, _ = plot_sliding_column_process(
+    fig, _, _ = plot_sliding_column_process(
         _Subject(),
         sliding_df=sliding_df,
         color_mode="hexagram",
@@ -133,7 +133,7 @@ def test_contour_mode_draws_density_boundaries_with_date_limits():
         }
     )
 
-    fig, _ = plot_sliding_column_process(
+    fig, _, _ = plot_sliding_column_process(
         _Subject(),
         sliding_df=sliding_df,
         color_mode="contour",
@@ -174,7 +174,7 @@ def test_layer_hexagram_can_render_samples_with_hexbin():
         },
     )
 
-    fig, _ = plot_rain_process_in_layer_hexagram(
+    fig, _, _ = plot_rain_process_in_layer_hexagram(
         _Subject(),
         analysis=analysis,
         use_hexbin=True,

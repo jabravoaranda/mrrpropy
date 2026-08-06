@@ -119,10 +119,11 @@ Firmas implementadas en `mrrpropy/rain_process_classification/rain_process_info.
 | Proceso | Firma `(Dm, Nw, LWC)` |
 |---|---|
 | `breakup` | `(-1, +1, 0)` |
-| `growth_depletion` | `(+1, -1, 0)` |
-| `growth_depletion_gain` | `(+1, -1, +1)` |
-| `growth_depletion_loss` | `(+1, -1, -1)` |
-| `evaporation` | `(-1, -1, -1)`, `(-1, -1, 0)`, `(-1, 0, -1)` |
+| `coalescence` | `(+1, -1, 0)` |
+| `coalescence_gain` | `(+1, -1, +1)` |
+| `coalescence_loss` | `(+1, -1, -1)` |
+| `evaporation_weak` | `(-1, 0, -1)` |
+| `evaporation_strong` | `(-1, -1, -1)` |
 | `growth` | `(+1, 0, +1)` |
 | `activation` | `(+1, +1, +1)`, `(0, +1, +1)` |
 

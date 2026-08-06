@@ -17,8 +17,11 @@ import xarray as xr
 
 from mrrpropy.rain_process_classification.rain_process_info import (
     PROCESS_CODES,
+    PROCESS_COLORS,
     PROCESS_MARKERS,
+    PROCESS_ORDER,
     PROCESS_SIGNATURES,
+    canonical_process_label,
 )
 from mrrpropy.rain_process_classification.rain_process_algorithm import (
     sliding_rain_classification_to_dataframe,
@@ -854,7 +857,7 @@ def plot_rain_process_in_layer_hexagram(
         alpha=kwargs.get("alpha_hexagram", 0.25),
     )
 
-    scatter = None
+    scatter: Any = None
     if np.any(ok):
         if use_hexbin:
             scatter = ax.hexbin(
@@ -947,21 +950,7 @@ def plot_processes_evolution(
     label_fs = kwargs.get("label_fs", 16)
     tick_fs = kwargs.get("tick_fs", 14)
 
-    process_order = kwargs.get(
-        "process_order",
-        [
-            "unknown",
-            "evaporation",
-            "breakup",
-            "growth_depletion",
-            "growth_depletion_gain",
-            "growth_depletion_loss",
-            "growth",
-            "activation",
-            "autoconversion",
-            "no_data",
-        ],
-    )
+    process_order = kwargs.get("process_order", PROCESS_ORDER)
 
     if not isinstance(classified, xr.Dataset):
         raise TypeError("classified debe ser un xr.Dataset.")
@@ -995,6 +984,7 @@ def plot_processes_evolution(
 
     df = classified[["proc_label", "strength"]].to_dataframe().reset_index()
     df = df[df["proc_label"].astype(str) != "steady_or_weak"].copy()
+    df["proc_label"] = df["proc_label"].map(canonical_process_label)
     labels = df["proc_label"].astype(str).fillna("unknown").to_numpy()
     present_labels = list(pd.unique(labels))
     ordered_labels = [label for label in process_order if label in present_labels]
@@ -1159,8 +1149,11 @@ def plot_sliding_column_process(
 
     sliding_attrs = dict(getattr(sliding_df, "attrs", {}))
     default_event_min_intensity = sliding_attrs.get("min_tau_strength", 0.0)
+    raw_event_min_intensity = kwargs.get(
+        "event_min_intensity", default_event_min_intensity
+    )
     event_min_intensity = float(
-        kwargs.get("event_min_intensity", default_event_min_intensity)
+        0.0 if raw_event_min_intensity is None else raw_event_min_intensity
     )
     event_vmin = float(kwargs.get("event_vmin", event_min_intensity))
     if isinstance(sliding_df, xr.Dataset):
@@ -1187,6 +1180,20 @@ def plot_sliding_column_process(
         )
     if marker_mode not in {"process", "single", "square"}:
         raise ValueError("marker_mode must be 'process', 'single', or 'square'.")
+    render_mode = kwargs.get("render_mode")
+    if render_mode is None:
+        render_mode = (
+            "cells"
+            if marker_mode == "square" and color_mode == "rain_signature"
+            else "markers"
+        )
+    render_mode = str(render_mode).lower()
+    if render_mode not in {"markers", "cells"}:
+        raise ValueError("render_mode must be 'markers' or 'cells'.")
+    if render_mode == "cells" and color_mode != "rain_signature":
+        raise ValueError(
+            "render_mode='cells' is only supported with color_mode='rain_signature'."
+        )
     if color_mode == "event" and event_process is None:
         raise ValueError("color_mode='event' requires event_process='process_name'.")
     if color_mode == "gaussian" and gaussian_points < 1:
@@ -1196,27 +1203,11 @@ def plot_sliding_column_process(
     if color_mode == "contour" and contour_region_scale <= 0.0:
         raise ValueError("contour_region_scale must be > 0.")
 
-    process_colors = kwargs.get(
-        "process_colors",
-        {
-            "breakup": "#12af54",
-            "breakup_gain": "#13d7d7",
-            "breakup_loss": "#24ca24",
-            "growth_depletion": "#1b9e77",
-            "growth_depletion_gain": "#f808d0",
-            "growth_depletion_loss": "#ff0000",
-            "evaporation": "#000000",
-            "growth": "#91209b",
-            "activation": "#66a61e",
-            "steady_or_weak": "#bdbdbd",
-            "unknown": "#666666",
-            "no_data": "#f0f0f0",
-        },
-    )
+    process_colors = kwargs.get("process_colors", PROCESS_COLORS)
 
     df = sliding_df.copy()
     df["time"] = pd.to_datetime(df["time"])
-    df["proc_label"] = df["proc_label"].astype(str)
+    df["proc_label"] = df["proc_label"].map(canonical_process_label)
     if "proc_strength" in df.columns:
         df["proc_strength"] = pd.to_numeric(df["proc_strength"], errors="coerce")
     else:
@@ -1256,7 +1247,7 @@ def plot_sliding_column_process(
     event_intensity: np.ndarray | None = None
     event_plot_mask: np.ndarray | None = None
     if color_mode == "event":
-        process_name = str(event_process)
+        process_name = canonical_process_label(event_process)
         signatures = PROCESS_SIGNATURES.get(process_name)
         if signatures is None:
             raise ValueError(f"Unknown event_process {process_name!r}.")
@@ -1362,6 +1353,49 @@ def plot_sliding_column_process(
         last = centers[-1] + (centers[-1] - midpoints[-1])
         return np.concatenate([[first], midpoints, [last]])
 
+    def _add_cell_collection(
+        group: pd.DataFrame,
+        *,
+        label: str,
+        facecolors: str | np.ndarray,
+    ) -> PatchCollection:
+        time_centers = mdates.date2num(group["time"].to_numpy())
+        height_centers = group["range"].to_numpy(dtype=float) / 1000.0
+        time_edges = _center_edges(mdates.date2num(df["time"].to_numpy()))
+        height_edges = _center_edges(df["range"].to_numpy(dtype=float) / 1000.0)
+        time_idx = np.searchsorted(time_edges, time_centers, side="right") - 1
+        height_idx = np.searchsorted(height_edges, height_centers, side="right") - 1
+        time_idx = np.clip(time_idx, 0, len(time_edges) - 2)
+        height_idx = np.clip(height_idx, 0, len(height_edges) - 2)
+        cell_gap = float(kwargs.get("cell_gap", 0.08))
+        if not 0.0 <= cell_gap < 1.0:
+            raise ValueError("cell_gap must be >= 0 and < 1.")
+        shrink = 0.5 * cell_gap
+        patches = []
+        for tidx, hidx in zip(time_idx, height_idx):
+            width = time_edges[tidx + 1] - time_edges[tidx]
+            height = height_edges[hidx + 1] - height_edges[hidx]
+            patches.append(
+                Rectangle(
+                    (
+                        time_edges[tidx] + width * shrink,
+                        height_edges[hidx] + height * shrink,
+                    ),
+                    width * (1.0 - cell_gap),
+                    height * (1.0 - cell_gap),
+                )
+            )
+        collection = PatchCollection(
+            patches,
+            facecolors=facecolors,
+            edgecolors=kwargs.get("cell_edgecolors", "none"),
+            linewidths=float(kwargs.get("cell_linewidth", 0.0)),
+            alpha=alpha,
+            label=label,
+        )
+        ax.add_collection(collection)
+        return collection
+
     handles: list[Any] = []
     if color_mode == "contour" and contour_background:
         ax.scatter(
@@ -1390,32 +1424,11 @@ def plot_sliding_column_process(
                 continue
 
             group = df.loc[mask].iloc[finite_rgb]
-            time_centers = mdates.date2num(group["time"].to_numpy())
-            height_centers = group["range"].to_numpy(dtype=float) / 1000.0
-            time_edges = _center_edges(mdates.date2num(df["time"].to_numpy()))
-            height_edges = _center_edges(df["range"].to_numpy(dtype=float) / 1000.0)
-            time_idx = np.searchsorted(time_edges, time_centers, side="right") - 1
-            height_idx = np.searchsorted(height_edges, height_centers, side="right") - 1
-            time_idx = np.clip(time_idx, 0, len(time_edges) - 2)
-            height_idx = np.clip(height_idx, 0, len(height_edges) - 2)
-
-            patches = [
-                Rectangle(
-                    (time_edges[tidx], height_edges[hidx]),
-                    time_edges[tidx + 1] - time_edges[tidx],
-                    height_edges[hidx + 1] - height_edges[hidx],
-                )
-                for tidx, hidx in zip(time_idx, height_idx)
-            ]
-            collection = PatchCollection(
-                patches,
-                facecolors=colors[finite_rgb],
-                edgecolors="none",
-                linewidths=0.0,
-                alpha=alpha,
+            _add_cell_collection(
+                group,
                 label=label,
+                facecolors=colors[finite_rgb],
             )
-            ax.add_collection(collection)
             handles.append(
                 Rectangle(
                     (0, 0),
@@ -1500,7 +1513,9 @@ def plot_sliding_column_process(
             color = process_colors.get(label, "#333333")
             for contour_index in range(contour_top_n):
                 target_count = int(
-                    round(contour_event_count * contour_region_scale * (contour_index + 1))
+                    round(
+                        contour_event_count * contour_region_scale * (contour_index + 1)
+                    )
                 )
                 target_count = max(1, target_count)
                 if target_count > point_density.size:
@@ -1531,6 +1546,26 @@ def plot_sliding_column_process(
                     [0],
                     color=color,
                     lw=float(kwargs.get("contour_linewidth", 1.8)),
+                    label=label,
+                )
+            )
+            continue
+
+        if render_mode == "cells":
+            color = process_colors.get(label, "#333333")
+            _add_cell_collection(
+                df.loc[mask],
+                label=label,
+                facecolors=color,
+            )
+            handles.append(
+                Rectangle(
+                    (0, 0),
+                    1,
+                    1,
+                    facecolor=color,
+                    edgecolor="none",
+                    alpha=alpha,
                     label=label,
                 )
             )
@@ -1756,18 +1791,7 @@ def plot_fused_process_quicklook(
     if sliding_df.empty and fused_df.empty:
         raise ValueError("sliding_df and fused_df are both empty.")
 
-    process_colors: dict[str, Any] = {
-        "breakup": "#12af54",
-        "growth_depletion": "#1b9e77",
-        "growth_depletion_gain": "#f808d0",
-        "growth_depletion_loss": "#ff0000",
-        "evaporation": "#000000",
-        "growth": "#91209b",
-        "activation": "#66a61e",
-        "steady_or_weak": "#bdbdbd",
-        "unknown": "#666666",
-        "no_data": "#f0f0f0",
-    }
+    process_colors: dict[str, Any] = dict(PROCESS_COLORS)
 
     def _resolve_column(
         df: pd.DataFrame, requested: str, alternatives: tuple[str, ...]
@@ -2079,23 +2103,7 @@ def plot_sliding_process_scatter_compare(
     if missing:
         raise KeyError(f"sliding_df must contain columns: {missing}")
 
-    process_colors = kwargs.get(
-        "process_colors",
-        {
-            "breakup": "#d95f02",
-            "breakup_gain": "#13d7d7",
-            "breakup_loss": "#24ca24",
-            "growth_depletion": "#1b9e77",
-            "growth_depletion_gain": "#7570b3",
-            "growth_depletion_loss": "#6a3d9a",
-            "evaporation": "#7570b3",
-            "growth": "#e7298a",
-            "activation": "#66a61e",
-            "steady_or_weak": "#bdbdbd",
-            "unknown": "#666666",
-            "no_data": "#f0f0f0",
-        },
-    )
+    process_colors = kwargs.get("process_colors", PROCESS_COLORS)
     figsize = kwargs.get("figsize", getattr(subject.plot_cfg, "figsize", (10, 8)))
     dpi = kwargs.get("dpi", subject.plot_cfg.dpi)
     label_fs = kwargs.get("label_fs", 15)
@@ -2107,7 +2115,10 @@ def plot_sliding_process_scatter_compare(
 
     df = sliding_df.copy()
     df["time"] = pd.to_datetime(df["time"])
-    df["proc_label"] = df["proc_label"].astype(str)
+    df["proc_label"] = df["proc_label"].map(canonical_process_label)
+    selected_processes = [
+        canonical_process_label(label) for label in selected_processes
+    ]
     df = df[df["proc_label"].isin(selected_processes)].copy()
     if period is not None:
         df = df[
@@ -2315,23 +2326,7 @@ def plot_classified_processes_on_hexagram(
     hex_assets = get_hexagram_assets(k=k)
     img = np.asarray(hex_assets["img"], float)
 
-    process_colors = kwargs.get(
-        "process_colors",
-        {
-            "breakup": "#d95f02",
-            "breakup_gain": "#13d7d7",
-            "breakup_loss": "#24ca24",
-            "growth_depletion": "#1b9e77",
-            "growth_depletion_gain": "#7570b3",
-            "growth_depletion_loss": "#6a3d9a",
-            "evaporation": "#7570b3",
-            "growth": "#e7298a",
-            "activation": "#66a61e",
-            "steady_or_weak": "#bdbdbd",
-            "unknown": "#666666",
-            "no_data": "#d9d9d9",
-        },
-    )
+    process_colors = kwargs.get("process_colors", PROCESS_COLORS)
 
     if processes is not None:
         for selected_processes in processes:
@@ -2366,14 +2361,17 @@ def plot_classified_processes_on_hexagram(
 
     hx = classified["hex_x"].values.astype(float)
     hy = classified["hex_y"].values.astype(float)
-    labels = classified["proc_label"].values.astype(str)
+    labels = np.asarray(
+        [canonical_process_label(label) for label in classified["proc_label"].values],
+        dtype=object,
+    )
     valid = np.isfinite(hx) & np.isfinite(hy) & (hx >= 0) & (hy >= 0)
 
     present_labels = pd.unique(labels[valid])
     handles: list[Any] = []
     strength = classified["strength"].values.astype(float)
     hexbin_gridsize = kwargs.get("hexbin_gridsize", max(img.shape[0], img.shape[1]))
-    scatter = None
+    scatter: Any = None
     for label in present_labels:
         mask = valid & (labels == label)
         if not np.any(mask):
